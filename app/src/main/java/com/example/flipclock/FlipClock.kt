@@ -7,6 +7,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -17,11 +18,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -31,6 +35,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -79,12 +85,12 @@ val LightThemeColors = ThemeColors(
     shineColor = Color(0xFFFFFFFF).copy(alpha = 0.6f)
 )
 
-val CardCornerRadius = 12.dp
-const val CARD_ASPECT_RATIO = 0.7f
+val CardCornerRadius = 16.dp // Чуть больше радиус для крупных карт
+const val CARD_ASPECT_RATIO = 0.65f // Делаем карты чуть уже и выше (более современный вид)
 
-const val GAP_SMALL_RATIO = 0.05f
-const val GAP_BIG_RATIO = 0.35f
-const val HOLDER_WIDTH_RATIO = 0.05f
+// Пропорции элементов относительно ширины одной карты
+const val GEAR_WIDTH_RATIO = 0.12f // Ширина шестеренки между картами
+const val BATTERY_GAP_RATIO = 0.4f // Расстояние между часами и минутами
 
 // --- ОСНОВНОЙ ЭКРАН ---
 
@@ -95,27 +101,26 @@ fun FlipClockScreen(
     var currentTime by remember { mutableStateOf(Calendar.getInstance()) }
     var showSettings by remember { mutableStateOf(false) }
 
-    val themeMode by viewModel.themeMode.collectAsState()
-    val bgColorInt by viewModel.backgroundColor.collectAsState()
-    val palette by viewModel.palette.collectAsState()
-    val isAutoBrightness by viewModel.isAutoBrightness.collectAsState()
-    val manualVal by viewModel.manualBrightness.collectAsState()
-    val luxStr by viewModel.sensorLuxString.collectAsState()
-    val showShadows by viewModel.showShadows.collectAsState()
+    val themeMode by viewModel.themeMode.collectAsState(initial = ThemeMode.DARK)
+    val bgColorInt by viewModel.backgroundColor.collectAsState(initial = 0xFF121212.toInt())
+    val palette by viewModel.palette.collectAsState(initial = listOf())
+    val isAutoBrightness by viewModel.isAutoBrightness.collectAsState(initial = false)
+    val manualVal by viewModel.manualBrightness.collectAsState(initial = 0.5f)
+    val luxStr by viewModel.sensorLuxString.collectAsState(initial = "Lux: --")
+    val showShadows by viewModel.showShadows.collectAsState(initial = true)
 
-    val bgImageUri by viewModel.bgImageUri.collectAsState()
-    val bgOpacity by viewModel.bgOpacity.collectAsState()
-    val bgBlur by viewModel.bgBlur.collectAsState()
-    val bgStretch by viewModel.bgStretch.collectAsState()
+    val bgImageUri by viewModel.bgImageUri.collectAsState(initial = null)
+    val bgOpacity by viewModel.bgOpacity.collectAsState(initial = 0.5f)
+    val bgBlur by viewModel.bgBlur.collectAsState(initial = 0f)
+    val bgStretch by viewModel.bgStretch.collectAsState(initial = true)
 
-    val cardColorInt by viewModel.cardColor.collectAsState()
+    val cardColorInt by viewModel.cardColor.collectAsState(initial = 0xFF3A3A3A.toInt())
 
-    val batteryLevel by viewModel.batteryLevel.collectAsState()
-    val isCharging by viewModel.isCharging.collectAsState()
+    val batteryLevel by viewModel.batteryLevel.collectAsState(initial = 0)
+    val isCharging by viewModel.isCharging.collectAsState(initial = false)
 
     val isSystemDark = isSystemInDarkTheme()
 
-    // В режиме COLOR мы считаем тему темной, если яркость выбранного цвета низкая
     val isColorModeDark = if (themeMode == ThemeMode.COLOR) {
         Color(cardColorInt).luminance() < 0.5f
     } else false
@@ -123,17 +128,14 @@ fun FlipClockScreen(
     val isDarkThemeActive = when (themeMode) {
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
-        ThemeMode.COLOR -> isColorModeDark // Системные бары зависят от яркости флипов
+        ThemeMode.COLOR -> isColorModeDark
         ThemeMode.AUTO -> isSystemDark
     }
 
-    // Формируем цветовую тему флипов
     val currentTheme = when (themeMode) {
         ThemeMode.COLOR -> {
             val baseColor = Color(cardColorInt)
-            // Определяем цвет текста по контрасту
             val textColor = if (baseColor.luminance() > 0.5f) Color.Black else Color.White
-            // Создаем градиент: верх - выбранный цвет, низ - чуть темнее
             ThemeColors(
                 cardGradientTop = baseColor,
                 cardGradientBottom = baseColor.copy(
@@ -148,9 +150,7 @@ fun FlipClockScreen(
         else -> if (isDarkThemeActive) DarkThemeColors else LightThemeColors
     }
 
-    val currentBgColor = Color(bgColorInt)
     val context = LocalContext.current
-
     val batteryContainerColor = currentTheme.cardGradientTop
 
     val bgBitmap: ImageBitmap? by produceState<ImageBitmap?>(initialValue = null, key1 = bgImageUri) {
@@ -183,12 +183,13 @@ fun FlipClockScreen(
     val h1 = hours / 10; val h2 = hours % 10
     val m1 = minutes / 10; val m2 = minutes % 10
 
-    val separatorColor = if (bgBitmap != null) Color.Black.copy(alpha = 0.4f) else currentBgColor
+    val separatorColor = if (bgBitmap != null) Color.Black.copy(alpha = 0.4f) else currentTheme.cardGradientTop
 
     BoxWithConstraints(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
+        // --- ФОН ---
         if (bgBitmap != null) {
             Box(Modifier.fillMaxSize().background(Color.Black))
             var imageModifier = Modifier.fillMaxSize().graphicsLayer { alpha = bgOpacity }
@@ -202,41 +203,58 @@ fun FlipClockScreen(
                 contentScale = if (bgStretch) ContentScale.Crop else ContentScale.Fit
             )
         } else {
-            Box(Modifier.fillMaxSize().background(currentBgColor))
+            Box(Modifier.fillMaxSize().background(currentTheme.cardGradientTop))
         }
 
-        val singleDigitTotalWidthRatio = 1f + (2 * HOLDER_WIDTH_RATIO)
-        val totalWidthUnits = (4 * singleDigitTotalWidthRatio) + (2 * GAP_SMALL_RATIO) + GAP_BIG_RATIO
+        // --- РАСЧЕТ РАЗМЕРОВ (УВЕЛИЧЕННЫЙ МАСШТАБ) ---
+        // Формула ширины: 4 карты + 2 шестеренки + 1 разрыв для батареи
+        val totalWidthUnits = 4f + (2 * GEAR_WIDTH_RATIO) + BATTERY_GAP_RATIO
 
+        // Доступное пространство (оставляем минимальные отступы по краям - 4%)
         val maxAvailableWidth = maxWidth * 0.96f
-        val maxAvailableHeight = maxHeight * 0.90f
+        val maxAvailableHeight = maxHeight * 0.92f
 
+        // Вычисляем ширину одной карты исходя из ширины экрана
         val cardWidthByWidth = maxAvailableWidth / totalWidthUnits
         val cardHeightByWidth = cardWidthByWidth / CARD_ASPECT_RATIO
 
+        // Вычисляем ширину одной карты исходя из высоты экрана
         val cardHeightByHeight = maxAvailableHeight
         val cardWidthByHeight = cardHeightByHeight * CARD_ASPECT_RATIO
 
+        // Выбираем тот вариант, который меньше (чтобы влезло и по ширине, и по высоте)
         val finalCardHeight = if (cardHeightByWidth <= maxAvailableHeight) cardHeightByWidth else cardHeightByHeight
         val finalCardWidth = if (cardHeightByWidth <= maxAvailableHeight) cardWidthByWidth else cardWidthByHeight
 
+        val gearWidth = finalCardWidth * GEAR_WIDTH_RATIO
+        val batteryGapWidth = finalCardWidth * BATTERY_GAP_RATIO
+
         val density = LocalDensity.current
         val fontSize = with(density) { (finalCardHeight * 0.85f).toSp() }
-        val smallGap = finalCardWidth * GAP_SMALL_RATIO
-        val bigGap = finalCardWidth * GAP_BIG_RATIO
 
+        // --- ВЕРСТКА ЧАСОВ ---
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center
+            horizontalArrangement = Arrangement.Center,
+            modifier = Modifier.wrapContentSize()
         ) {
-            FlipCard(h1, finalCardWidth, finalCardHeight, fontSize, currentTheme, showShadows, separatorColor)
-            Spacer(modifier = Modifier.width(smallGap))
-            FlipCard(h2, finalCardWidth, finalCardHeight, fontSize, currentTheme, showShadows, separatorColor)
+            // Группа ЧАСЫ: [H1] [Шестеренка] [H2]
+            FlipPair(
+                d1 = h1, d2 = h2,
+                cardWidth = finalCardWidth,
+                cardHeight = finalCardHeight,
+                gearWidth = gearWidth,
+                fontSize = fontSize,
+                theme = currentTheme,
+                showShadows = showShadows,
+                separatorColor = separatorColor
+            )
 
+            // ЦЕНТР: Индикатор батареи
             Box(
                 modifier = Modifier
-                    .width(bigGap)
-                    .height(finalCardHeight * 0.65f),
+                    .width(batteryGapWidth)
+                    .height(finalCardHeight * 0.55f), // Чуть меньше высоты карт
                 contentAlignment = Alignment.Center
             ) {
                 BatteryIndicator(
@@ -245,23 +263,33 @@ fun FlipClockScreen(
                     showShadows = showShadows,
                     backgroundColor = batteryContainerColor,
                     flipTheme = currentTheme,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize().scale(0.85f) // Масштабируем индикатор внутри бокса
                 )
             }
 
-            FlipCard(m1, finalCardWidth, finalCardHeight, fontSize, currentTheme, showShadows, separatorColor)
-            Spacer(modifier = Modifier.width(smallGap))
-            FlipCard(m2, finalCardWidth, finalCardHeight, fontSize, currentTheme, showShadows, separatorColor)
+            // Группа МИНУТЫ: [M1] [Шестеренка] [M2]
+            FlipPair(
+                d1 = m1, d2 = m2,
+                cardWidth = finalCardWidth,
+                cardHeight = finalCardHeight,
+                gearWidth = gearWidth,
+                fontSize = fontSize,
+                theme = currentTheme,
+                showShadows = showShadows,
+                separatorColor = separatorColor
+            )
         }
 
+        // Кнопка настроек
         IconButton(
             onClick = { showSettings = true },
-            modifier = Modifier.align(Alignment.BottomEnd).padding(32.dp)
+            // ИЗМЕНЕНИЕ: Alignment.BottomCenter для размещения по центру внизу
+            modifier = Modifier.align(Alignment.BottomCenter).padding(32.dp)
         ) {
             Icon(
                 imageVector = Icons.Default.Settings,
                 contentDescription = "Settings",
-                tint = if (bgBitmap != null) Color.White.copy(0.7f) else if (currentBgColor.luminance() > 0.5f) Color.Black.copy(0.6f) else Color.White.copy(0.6f),
+                tint = if (bgBitmap != null) Color.White.copy(0.7f) else currentTheme.text.copy(0.6f),
                 modifier = Modifier.size(32.dp)
             )
         }
@@ -287,7 +315,56 @@ fun FlipClockScreen(
     }
 }
 
-// === КОНТУРНЫЙ ИНДИКАТОР ===
+// === КОМПОНЕНТ ПАРЫ ЦИФР С ОБЩЕЙ ШЕСТЕРЕНКОЙ ===
+
+@Composable
+fun FlipPair(
+    d1: Int, d2: Int,
+    cardWidth: Dp, cardHeight: Dp, gearWidth: Dp,
+    fontSize: TextUnit,
+    theme: ThemeColors,
+    showShadows: Boolean,
+    separatorColor: Color
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        // Первая цифра
+        FlipCard(
+            value = d1,
+            width = cardWidth,
+            height = cardHeight,
+            fontSize = fontSize,
+            theme = theme,
+            showShadows = showShadows,
+            separatorColor = separatorColor
+        )
+
+        // ОБЩАЯ ШЕСТЕРЕНКА (СОЕДИНИТЕЛЬ)
+        Box(
+            modifier = Modifier
+                .width(gearWidth)
+                .height(cardHeight * 0.4f)
+                .zIndex(10f)
+        ) {
+            GearHolder(
+                width = gearWidth,
+                height = cardHeight * 0.4f
+            )
+        }
+
+        // Вторая цифра
+        FlipCard(
+            value = d2,
+            width = cardWidth,
+            height = cardHeight,
+            fontSize = fontSize,
+            theme = theme,
+            showShadows = showShadows,
+            separatorColor = separatorColor
+        )
+    }
+}
+
+// === ИНДИКАТОР БАТАРЕИ ===
 
 @Composable
 fun BatteryIndicator(
@@ -302,16 +379,17 @@ fun BatteryIndicator(
 
     val infiniteTransition = rememberInfiniteTransition()
     val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.8f,
-        targetValue = 0.2f,
+        initialValue = 1f,
+        targetValue = 0.6f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = EaseInOutSine),
+            animation = tween(1000, easing = EaseInOutSine),
             repeatMode = RepeatMode.Reverse
         )
     )
 
     val pillShape = RoundedCornerShape(100)
     val containerShape = RoundedCornerShape(16.dp)
+    val centerColor = Color(0xFF1A1A1A)
 
     Box(
         modifier = modifier
@@ -329,11 +407,14 @@ fun BatteryIndicator(
             .clip(containerShape)
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(backgroundColor, backgroundColor.copy(alpha = 0.8f))
+                    colors = listOf(
+                        backgroundColor,
+                        backgroundColor.copy(red = backgroundColor.red * 0.9f, green = backgroundColor.green * 0.9f, blue = backgroundColor.blue * 0.9f)
+                    )
                 )
             )
             .border(1.dp, Color.White.copy(alpha = 0.05f), containerShape)
-            .padding(vertical = 12.dp, horizontal = 8.dp)
+            .padding(vertical = 12.dp, horizontal = 10.dp)
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -342,71 +423,90 @@ fun BatteryIndicator(
         ) {
             for (i in 5 downTo 1) {
                 val isActive = i <= activeSegmentsCount
-
-                val glowColor = when {
-                    level == 100 -> Color(0xFF4CAF50)
-                    level <= 20 && i == 1 -> Color(0xFFF44336)
+                val baseGlowColor = when {
+                    level == 100 -> Color(0xFF66BB6A)
+                    level <= 20 && i == 1 -> Color(0xFFEF5350)
                     else -> Color(0xFFFFB74D)
                 }
-
                 val isBlinking = isCharging && isActive && (i == activeSegmentsCount)
                 val currentGlowAlpha = if (isBlinking) pulseAlpha else 1f
+                val rimThickness = 6.dp
 
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxWidth(0.9f),
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth(0.9f)
+                        .then(
+                            if (isActive && showShadows) {
+                                Modifier.shadow(4.dp, pillShape, false, Color.Black.copy(alpha=0.3f), Color.Black.copy(alpha=0.6f))
+                            } else Modifier
+                        )
+                        .then(
+                            if (isActive && showShadows) {
+                                Modifier.shadow(12.dp, pillShape, false, baseGlowColor, baseGlowColor)
+                            } else Modifier
+                        )
+                        .clip(pillShape)
+                        .then(
+                            if (isActive) Modifier.border(BorderStroke(1.dp, centerColor), pillShape) else Modifier
+                        )
+                        .background(
+                            if (isActive) {
+                                Brush.radialGradient(
+                                    colors = listOf(baseGlowColor.copy(alpha=currentGlowAlpha), baseGlowColor.copy(alpha=currentGlowAlpha*0.8f))
+                                )
+                            } else {
+                                SolidColor(Color(0xFF333333))
+                            }
+                        )
                 ) {
-                    if (isActive) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .alpha(currentGlowAlpha)
-                                .shadow(12.dp, pillShape, false, glowColor, glowColor)
-                        )
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .alpha(currentGlowAlpha)
-                                .background(glowColor, pillShape)
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color.Black.copy(alpha=0.3f), pillShape)
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize(0.75f)
-                            .shadow(2.dp, pillShape)
-                            .clip(pillShape)
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = listOf(flipTheme.cardGradientTop, flipTheme.cardGradientBottom)
-                                )
-                            )
-                    ) {
-                        Box(
-                            modifier = Modifier.fillMaxSize().background(
-                                Brush.linearGradient(
-                                    colors = listOf(Color.White.copy(0.15f), Color.Transparent),
-                                    start = Offset(0f, 0f),
-                                    end = Offset(0f, Float.POSITIVE_INFINITY)
-                                )
-                            )
-                        )
-                    }
+                    Box(modifier = Modifier.fillMaxSize().padding(rimThickness).clip(pillShape).background(centerColor))
                 }
             }
         }
     }
 }
 
-// --- ФЛИП-КАРТА ---
+// === ШЕСТЕРЕНКА (GEAR HOLDER) ===
+
+@Composable
+fun GearHolder(
+    width: Dp,
+    height: Dp,
+    modifier: Modifier = Modifier
+) {
+    val teethBrush = remember {
+        Brush.verticalGradient(
+            0.0f to Color(0xFF0A0A0A),
+            0.4f to Color(0xFF2A2A2A),
+            0.6f to Color(0xFF2A2A2A),
+            1.0f to Color(0xFF0A0A0A),
+            startY = 0f, endY = 12f, tileMode = TileMode.Repeated
+        )
+    }
+    val cylinderShadowBrush = remember {
+        Brush.horizontalGradient(
+            0.0f to Color.Black.copy(alpha = 0.9f),
+            0.3f to Color.Transparent,
+            0.7f to Color.Transparent,
+            1.0f to Color.Black.copy(alpha = 0.9f)
+        )
+    }
+
+    Box(
+        modifier = modifier
+            .width(width)
+            .height(height)
+            .clip(RoundedCornerShape(4.dp))
+            .background(Color(0xFF151515))
+            .background(teethBrush)
+    ) {
+        Box(Modifier.fillMaxSize().background(cylinderShadowBrush))
+        Box(Modifier.fillMaxSize().border(0.5.dp, Color.Black.copy(0.6f), RoundedCornerShape(4.dp)))
+    }
+}
+
+// --- ФЛИП-КАРТА (ОДИНАКОВЫЕ УГЛЫ) ---
 
 @Composable
 fun FlipCard(
@@ -436,111 +536,90 @@ fun FlipCard(
 
     val formattedCurrent = animatedValue.toString()
     val formattedPrevious = previousValue.toString()
-
     val cardBrush = Brush.verticalGradient(listOf(theme.cardGradientTop, theme.cardGradientBottom))
-
     val stackCount = 3
     val stackOffset = 1.5.dp
 
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.wrapContentSize()
-    ) {
-        Box(
-            modifier = Modifier
-                .width(width * HOLDER_WIDTH_RATIO)
-                .height(height * 0.15f)
-                .clip(RoundedCornerShape(topStart = 2.dp, bottomStart = 2.dp))
-                .background(Color(0xFF202020))
-        )
+    // ИЗМЕНЕНИЕ: Одинаковые закругления для всех углов
+    val cardShape = RoundedCornerShape(CardCornerRadius)
 
-        Box(modifier = Modifier.size(width, height)) {
+    Box(modifier = Modifier.size(width, height)) {
+        if (showShadows) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { translationY = 8.dp.toPx() }
+                    .shadow(16.dp, cardShape, false, Color.Black.copy(alpha=0.5f), Color.Black)
+            )
+        }
 
-            if (showShadows) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { translationY = 8.dp.toPx() }
-                        .shadow(16.dp, RoundedCornerShape(CardCornerRadius), false, Color.Black.copy(alpha=0.5f), Color.Black)
-                )
-            }
-
-            Box(modifier = Modifier.fillMaxSize().zIndex(-1f)) {
-                for (i in 1..stackCount) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(height / 2)
-                            .align(Alignment.TopCenter)
-                            .offset(y = -stackOffset * i)
-                            .clip(RoundedCornerShape(topStart = CardCornerRadius, topEnd = CardCornerRadius))
-                            .background(cardBrush)
-                    ) {
-                        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.15f * i)))
-                        Box(Modifier.fillMaxWidth().height(0.5.dp).background(Color.Black.copy(alpha = 0.3f)).align(Alignment.TopCenter))
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(height / 2)
-                            .align(Alignment.BottomCenter)
-                            .offset(y = stackOffset * i)
-                            .clip(RoundedCornerShape(bottomStart = CardCornerRadius, bottomEnd = CardCornerRadius))
-                            .background(cardBrush)
-                    ) {
-                        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.15f * i)))
-                        Box(Modifier.fillMaxWidth().height(0.5.dp).background(Color.Black.copy(alpha = 0.3f)).align(Alignment.BottomCenter))
-                    }
-                }
-            }
-
-            Box(modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(CardCornerRadius))) {
-                NumberTile(formattedCurrent, TileType.BOTTOM, fontSize, theme)
-                if (rotation.value < 90f) {
-                    NumberTile(formattedPrevious, TileType.TOP, fontSize, theme)
-                } else {
-                    NumberTile(formattedCurrent, TileType.TOP, fontSize, theme)
-                }
-
-                val flipRotation = if (rotation.value < 90f) rotation.value else rotation.value - 180f
-
-                if (rotation.value > 0f && rotation.value < 180f) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                cameraDistance = 32.dp.toPx()
-                                rotationX = -flipRotation
-                            }
-                            .zIndex(2f)
-                    ) {
-                        if (rotation.value < 90f) {
-                            NumberTile(formattedPrevious, TileType.TOP, fontSize, theme)
-                        } else {
-                            NumberTile(formattedCurrent, TileType.BOTTOM, fontSize, theme)
-                        }
-                    }
-                }
-
+        Box(modifier = Modifier.fillMaxSize().zIndex(-1f)) {
+            for (i in 1..stackCount) {
+                // Статичные листы (стопка)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(3.dp)
-                        .background(separatorColor)
-                        .align(Alignment.Center)
-                        .zIndex(3f)
-                )
+                        .height(height / 2)
+                        .align(Alignment.TopCenter)
+                        .offset(y = -stackOffset * i)
+                        // Верхняя половина с одинаковыми углами сверху
+                        .clip(RoundedCornerShape(topStart = CardCornerRadius, topEnd = CardCornerRadius))
+                        .background(cardBrush)
+                ) {
+                    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.15f * i)))
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(height / 2)
+                        .align(Alignment.BottomCenter)
+                        .offset(y = stackOffset * i)
+                        // Нижняя половина с одинаковыми углами снизу
+                        .clip(RoundedCornerShape(bottomStart = CardCornerRadius, bottomEnd = CardCornerRadius))
+                        .background(cardBrush)
+                ) {
+                    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.15f * i)))
+                }
             }
         }
 
-        Box(
-            modifier = Modifier
-                .width(width * HOLDER_WIDTH_RATIO)
-                .height(height * 0.15f)
-                .clip(RoundedCornerShape(topEnd = 2.dp, bottomEnd = 2.dp))
-                .background(Color(0xFF202020))
-        )
+        Box(modifier = Modifier.fillMaxSize().clip(cardShape)) {
+            NumberTile(formattedCurrent, TileType.BOTTOM, fontSize, theme)
+            if (rotation.value < 90f) {
+                NumberTile(formattedPrevious, TileType.TOP, fontSize, theme)
+            } else {
+                NumberTile(formattedCurrent, TileType.TOP, fontSize, theme)
+            }
+
+            val flipRotation = if (rotation.value < 90f) rotation.value else rotation.value - 180f
+
+            if (rotation.value > 0f && rotation.value < 180f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            cameraDistance = 32.dp.toPx()
+                            rotationX = -flipRotation
+                        }
+                        .zIndex(2f)
+                ) {
+                    if (rotation.value < 90f) {
+                        NumberTile(formattedPrevious, TileType.TOP, fontSize, theme)
+                    } else {
+                        NumberTile(formattedCurrent, TileType.BOTTOM, fontSize, theme)
+                    }
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .background(separatorColor)
+                    .align(Alignment.Center)
+                    .zIndex(3f)
+            )
+        }
     }
 }
 
