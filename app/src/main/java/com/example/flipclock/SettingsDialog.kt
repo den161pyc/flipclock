@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.delay
+import kotlin.math.abs
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -116,16 +117,16 @@ fun SettingsDialog(
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.5f))
                 .clickable(onClick = onDismiss)
-                .padding(16.dp), // Отступ от краев экрана
+                .padding(16.dp),
             contentAlignment = Alignment.Center
         ) {
             Card(
                 shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C1E)),
                 modifier = Modifier
-                    .fillMaxWidth(0.9f) // 90% ширины
+                    .fillMaxWidth(0.9f)
                     .wrapContentHeight()
-                    .heightIn(max = 600.dp) // Максимальная высота
+                    .heightIn(max = 600.dp)
                     .clickable(enabled = false) {}
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -135,11 +136,15 @@ fun SettingsDialog(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text("Настройки", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+
+                        // Увеличенный крестик закрытия (+25%)
                         IconButton(
                             onClick = onDismiss,
-                            modifier = Modifier.background(Color(0xFF2C2C2E), CircleShape).size(24.dp)
+                            modifier = Modifier
+                                .background(Color(0xFF2C2C2E), CircleShape)
+                                .size(30.dp) // Было 24dp, стало 30dp
                         ) {
-                            Icon(Icons.Default.Close, null, tint = Color.Gray, modifier = Modifier.size(14.dp))
+                            Icon(Icons.Default.Close, null, tint = Color.Gray, modifier = Modifier.size(18.dp)) // Иконка тоже чуть больше
                         }
                     }
 
@@ -163,8 +168,23 @@ fun SettingsDialog(
 
                         Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF2C2C2E)), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
                             Column {
-                                SettingsOptionRow("Авто-тема", { onThemeChanged(ThemeMode.AUTO) }) {
-                                    RadioButton(selected = themeMode == ThemeMode.AUTO, onClick = { onThemeChanged(ThemeMode.AUTO) }, modifier = Modifier.size(18.dp), colors = RadioButtonDefaults.colors(selectedColor = Color(0xFF448AFF)))
+                                // Авто-тема Switch
+                                SettingsOptionRow(
+                                    "Авто-тема",
+                                    {
+                                        if (themeMode == ThemeMode.AUTO) onThemeChanged(ThemeMode.DARK)
+                                        else onThemeChanged(ThemeMode.AUTO)
+                                    }
+                                ) {
+                                    Switch(
+                                        checked = themeMode == ThemeMode.AUTO,
+                                        onCheckedChange = { isChecked ->
+                                            if (isChecked) onThemeChanged(ThemeMode.AUTO)
+                                            else onThemeChanged(ThemeMode.DARK)
+                                        },
+                                        modifier = Modifier.scale(0.6f),
+                                        colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF448AFF), uncheckedThumbColor = Color.White, uncheckedTrackColor = Color(0xFF48484A))
+                                    )
                                 }
 
                                 if (themeMode == ThemeMode.COLOR) {
@@ -198,7 +218,8 @@ fun SettingsDialog(
                                 }
 
                                 Divider(color = Color.Gray.copy(0.2f), thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 8.dp))
-                                SettingsOptionRow("Тень цифр", { onShadowsChanged(!showShadows) }) {
+                                // ИЗМЕНЕНИЕ: Тень - Switch, название "Тень"
+                                SettingsOptionRow("Тень", { onShadowsChanged(!showShadows) }) {
                                     Switch(checked = showShadows, onCheckedChange = onShadowsChanged, modifier = Modifier.scale(0.6f), colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF448AFF), uncheckedThumbColor = Color.White, uncheckedTrackColor = Color(0xFF48484A)))
                                 }
                             }
@@ -230,16 +251,16 @@ fun SettingsDialog(
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Divider(color = Color.Gray.copy(0.2f), thickness = 0.5.dp)
 
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.fillMaxWidth().clickable { onBgStretchChanged(!bgStretch) }.padding(vertical = 8.dp)
+                                    // Растянуть на экран - Switch
+                                    SettingsOptionRow(
+                                        "Растянуть на экран",
+                                        { onBgStretchChanged(!bgStretch) }
                                     ) {
-                                        Text("Растянуть на экран", color = Color.White, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                                        Checkbox(
+                                        Switch(
                                             checked = bgStretch,
                                             onCheckedChange = onBgStretchChanged,
-                                            modifier = Modifier.size(18.dp).scale(0.8f),
-                                            colors = CheckboxDefaults.colors(checkedColor = Color(0xFF448AFF), uncheckedColor = Color.Gray)
+                                            modifier = Modifier.scale(0.6f),
+                                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF448AFF), uncheckedThumbColor = Color.White, uncheckedTrackColor = Color(0xFF48484A))
                                         )
                                     }
 
@@ -354,9 +375,6 @@ fun HsvColorPicker(
     val (hue, sat, `val`) = hsvState.value
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        // Панель Saturation/Value
-        // В ландшафте используем weight(1f) чтобы она занимала всё доступное место и сжималась
-        // В портрете используем aspectRatio
         Box(modifier = if (isLandscape) Modifier.weight(1f).fillMaxWidth() else Modifier.fillMaxWidth().aspectRatio(1.3f)) {
             SaturationValuePanel(
                 hue = hue,
@@ -502,7 +520,7 @@ fun HexColorPickerDialog(initialColor: Int, onDismiss: () -> Unit, onColorConfir
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF2C2C2E)),
                 modifier = Modifier
                     .fillMaxWidth(0.95f)
-                    .fillMaxHeight(if (isLandscape) 0.9f else Float.NaN) // В ландшафте занимаем 90% высоты
+                    .fillMaxHeight(if (isLandscape) 0.9f else Float.NaN)
                     .wrapContentHeight(if(isLandscape) Alignment.CenterVertically else Alignment.Top)
                     .heightIn(max = 600.dp)
                     .clickable(enabled = false) {}
@@ -515,12 +533,10 @@ fun HexColorPickerDialog(initialColor: Int, onDismiss: () -> Unit, onColorConfir
                     Spacer(Modifier.height(if(isLandscape) 8.dp else 16.dp))
 
                     if (isLandscape) {
-                        // === ЛАНДШАФТНЫЙ РЕЖИМ (авто-масштаб) ===
                         Row(
-                            modifier = Modifier.fillMaxSize(), // Занимаем все доступное место в карточке
+                            modifier = Modifier.fillMaxSize(),
                             horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            // Левая колонка (Палитра) - забирает всё свободное место по вертикали
                             Column(modifier = Modifier.weight(0.6f).fillMaxHeight()) {
                                 HsvColorPicker(
                                     initialColor = currentColor,
@@ -532,7 +548,6 @@ fun HexColorPickerDialog(initialColor: Int, onDismiss: () -> Unit, onColorConfir
                                 )
                             }
 
-                            // Правая колонка (Контролы)
                             Column(
                                 modifier = Modifier.weight(0.4f).fillMaxHeight(),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -579,7 +594,6 @@ fun HexColorPickerDialog(initialColor: Int, onDismiss: () -> Unit, onColorConfir
                             }
                         }
                     } else {
-                        // === ПОРТРЕТНЫЙ РЕЖИМ (старый) ===
                         HsvColorPicker(
                             initialColor = currentColor,
                             onColorChanged = { newColor ->
@@ -635,7 +649,20 @@ fun LinearLabeledSlider(title: String? = null, value: Float, onValueChange: (Flo
         )
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             val labels = listOf("0", "25", "50", "75", "100")
-            labels.forEach { label -> Text(text = label, color = Color.Gray, fontSize = 9.sp, textAlign = TextAlign.Center, modifier = Modifier.width(20.dp)) }
+            labels.forEach { label ->
+                // Сделали цифры кликабельными
+                Text(
+                    text = label,
+                    color = Color.Gray,
+                    fontSize = 9.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .width(20.dp)
+                        .clickable {
+                            onValueChange(label.toFloat() / 100f)
+                        }
+                )
+            }
         }
     }
 }
