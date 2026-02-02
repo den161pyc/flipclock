@@ -23,14 +23,15 @@ import kotlin.math.min
 
 private val Context.dataStore by preferencesDataStore(name = "settings_v6")
 
-enum class ThemeMode { LIGHT, DARK, AUTO }
+// Заменили GLASS на COLOR
+enum class ThemeMode { LIGHT, DARK, AUTO, COLOR }
 
 class BrightnessViewModel(application: Application) : AndroidViewModel(application), SensorEventListener {
 
     private var sensorManager: SensorManager? = null
     private var lightSensor: Sensor? = null
 
-    // --- КЛЮЧИ ---
+    // Ключи
     private val KEY_IS_AUTO = booleanPreferencesKey("is_auto")
     private val KEY_MANUAL = floatPreferencesKey("manual_val")
     private val KEY_THEME = stringPreferencesKey("theme")
@@ -40,6 +41,8 @@ class BrightnessViewModel(application: Application) : AndroidViewModel(applicati
     private val KEY_BG_OPACITY = floatPreferencesKey("bg_opacity")
     private val KEY_BG_BLUR = floatPreferencesKey("bg_blur")
     private val KEY_BG_STRETCH = booleanPreferencesKey("bg_stretch")
+    // Новый ключ для цвета карточек
+    private val KEY_CARD_COLOR = intPreferencesKey("card_color")
 
     private val KEYS_PALETTE = listOf(
         intPreferencesKey("p0"), intPreferencesKey("p1"), intPreferencesKey("p2"),
@@ -55,7 +58,7 @@ class BrightnessViewModel(application: Application) : AndroidViewModel(applicati
     private val _sensorLuxString = MutableStateFlow("Lux: --")
     val sensorLuxString = _sensorLuxString.asStateFlow()
 
-    // --- СОСТОЯНИЯ ---
+    // Состояния
     private val _isAutoBrightness = MutableStateFlow(false)
     val isAutoBrightness = _isAutoBrightness.asStateFlow()
 
@@ -89,7 +92,11 @@ class BrightnessViewModel(application: Application) : AndroidViewModel(applicati
     private val _bgStretch = MutableStateFlow(true)
     val bgStretch = _bgStretch.asStateFlow()
 
-    // --- БАТАРЕЯ ---
+    // Цвет карточек (по умолчанию темно-серый, как в Dark теме)
+    private val _cardColor = MutableStateFlow(0xFF3A3A3A.toInt())
+    val cardColor = _cardColor.asStateFlow()
+
+    // Батарея
     private val _batteryLevel = MutableStateFlow(0)
     val batteryLevel = _batteryLevel.asStateFlow()
 
@@ -124,6 +131,7 @@ class BrightnessViewModel(application: Application) : AndroidViewModel(applicati
                 _bgOpacity.value = prefs[KEY_BG_OPACITY] ?: 0.5f
                 _bgBlur.value = prefs[KEY_BG_BLUR] ?: 0f
                 _bgStretch.value = prefs[KEY_BG_STRETCH] ?: true
+                _cardColor.value = prefs[KEY_CARD_COLOR] ?: 0xFF3A3A3A.toInt()
 
                 val loadedPalette = KEYS_PALETTE.mapIndexed { index, key ->
                     prefs[key] ?: DEFAULT_PALETTE[index]
@@ -135,21 +143,14 @@ class BrightnessViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    // --- МЕТОДЫ БАТАРЕИ ---
     fun registerBatteryReceiver(context: Context) {
         val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
         context.registerReceiver(batteryReceiver, filter)
     }
 
     fun unregisterBatteryReceiver(context: Context) {
-        try {
-            context.unregisterReceiver(batteryReceiver)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        try { context.unregisterReceiver(batteryReceiver) } catch (e: Exception) { e.printStackTrace() }
     }
-
-    // ... Остальные методы (setBgImage, setBgOpacity и т.д.) без изменений ...
 
     fun setBgImage(uri: Uri?) {
         val uriString = uri?.toString()
@@ -168,35 +169,19 @@ class BrightnessViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    fun setBgOpacity(value: Float) {
-        _bgOpacity.value = value
-        saveFloat(KEY_BG_OPACITY, value)
+    fun setBgOpacity(value: Float) { _bgOpacity.value = value; saveFloat(KEY_BG_OPACITY, value) }
+    fun setBgBlur(value: Float) { _bgBlur.value = value; saveFloat(KEY_BG_BLUR, value) }
+    fun setBgStretch(enabled: Boolean) { _bgStretch.value = enabled; saveBoolean(KEY_BG_STRETCH, enabled) }
+
+    // Функция установки цвета карточек
+    fun setCardColor(color: Int) {
+        _cardColor.value = color
+        saveInt(KEY_CARD_COLOR, color)
     }
 
-    fun setBgBlur(value: Float) {
-        _bgBlur.value = value
-        saveFloat(KEY_BG_BLUR, value)
-    }
-
-    fun setBgStretch(enabled: Boolean) {
-        _bgStretch.value = enabled
-        saveBoolean(KEY_BG_STRETCH, enabled)
-    }
-
-    fun setThemeMode(mode: ThemeMode) {
-        _themeMode.value = mode
-        saveString(KEY_THEME, mode.name)
-    }
-
-    fun setBackgroundColor(color: Int) {
-        _backgroundColor.value = color
-        saveInt(KEY_BG_COLOR, color)
-    }
-
-    fun toggleShadows(enabled: Boolean) {
-        _showShadows.value = enabled
-        saveBoolean(KEY_SHOW_SHADOW, enabled)
-    }
+    fun setThemeMode(mode: ThemeMode) { _themeMode.value = mode; saveString(KEY_THEME, mode.name) }
+    fun setBackgroundColor(color: Int) { _backgroundColor.value = color; saveInt(KEY_BG_COLOR, color) }
+    fun toggleShadows(enabled: Boolean) { _showShadows.value = enabled; saveBoolean(KEY_SHOW_SHADOW, enabled) }
 
     fun updatePaletteColor(index: Int, newColor: Int) {
         val current = _palette.value.toMutableList()
@@ -210,10 +195,7 @@ class BrightnessViewModel(application: Application) : AndroidViewModel(applicati
 
     fun toggleAutoBrightness(enabled: Boolean) {
         _isAutoBrightness.value = enabled
-        if (enabled) registerSensor() else {
-            unregisterSensor()
-            _currentScreenBrightness.value = _manualBrightness.value
-        }
+        if (enabled) registerSensor() else { unregisterSensor(); _currentScreenBrightness.value = _manualBrightness.value }
         recalculateBrightness()
         saveBoolean(KEY_IS_AUTO, enabled)
     }
@@ -234,6 +216,7 @@ class BrightnessViewModel(application: Application) : AndroidViewModel(applicati
 
     private fun registerSensor() { sensorManager?.registerListener(this, lightSensor, SensorManager.SENSOR_DELAY_UI) }
     private fun unregisterSensor() { sensorManager?.unregisterListener(this) }
+
     override fun onSensorChanged(event: SensorEvent?) {
         if (event?.sensor?.type == Sensor.TYPE_LIGHT) {
             currentLuxValue = event.values[0]
@@ -241,6 +224,7 @@ class BrightnessViewModel(application: Application) : AndroidViewModel(applicati
             recalculateBrightness()
         }
     }
+
     private fun recalculateBrightness() {
         if (_isAutoBrightness.value) {
             val sensorBrightness = min(1f, currentLuxValue / 1000f)
@@ -250,6 +234,7 @@ class BrightnessViewModel(application: Application) : AndroidViewModel(applicati
             _currentScreenBrightness.value = _manualBrightness.value.coerceAtLeast(0.01f)
         }
     }
+
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
     override fun onCleared() { super.onCleared(); unregisterSensor() }
 

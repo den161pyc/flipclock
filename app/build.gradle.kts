@@ -56,4 +56,5 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose) // или новее
     implementation(libs.androidx.activity.ktx)
     implementation(libs.androidx.datastore.preferences)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
 }

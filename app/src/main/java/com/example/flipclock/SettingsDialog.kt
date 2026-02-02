@@ -1,10 +1,15 @@
 package com.example.flipclock
 
+import android.content.res.Configuration
+import android.graphics.Color.colorToHSV
+import android.graphics.Color.parseColor
 import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,9 +26,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.Dp
@@ -55,9 +68,12 @@ fun SettingsDialog(
     bgBlur: Float,
     onBgBlurChanged: (Float) -> Unit,
     bgStretch: Boolean,
-    onBgStretchChanged: (Boolean) -> Unit
+    onBgStretchChanged: (Boolean) -> Unit,
+    currentCardColor: Int,
+    onCardColorChanged: (Int) -> Unit
 ) {
     var showColorPicker by remember { mutableStateOf(false) }
+    var colorPickerMode by remember { mutableStateOf<PickerMode>(PickerMode.Background) }
     var colorPickerIndex by remember { mutableIntStateOf(-1) }
     var colorPickerInitialColor by remember { mutableIntStateOf(0) }
 
@@ -81,7 +97,11 @@ fun SettingsDialog(
             initialColor = colorPickerInitialColor,
             onDismiss = { showColorPicker = false },
             onColorConfirmed = { newColor ->
-                onPaletteEdited(colorPickerIndex, newColor)
+                if (colorPickerMode == PickerMode.Background) {
+                    onPaletteEdited(colorPickerIndex, newColor)
+                } else {
+                    onCardColorChanged(newColor)
+                }
                 showColorPicker = false
             }
         )
@@ -96,20 +116,19 @@ fun SettingsDialog(
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.5f))
                 .clickable(onClick = onDismiss)
-                .padding(24.dp),
+                .padding(16.dp), // Отступ от краев экрана
             contentAlignment = Alignment.Center
         ) {
             Card(
                 shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C1E)),
                 modifier = Modifier
-                    .fillMaxWidth(0.7f) // Фиксированная ширина для аккуратности
+                    .fillMaxWidth(0.9f) // 90% ширины
                     .wrapContentHeight()
-                    .heightIn(max = 600.dp)
+                    .heightIn(max = 600.dp) // Максимальная высота
                     .clickable(enabled = false) {}
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    // Header
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -133,11 +152,12 @@ fun SettingsDialog(
                     ) {
                         Box(Modifier.size(1.dp).focusRequester(focusRequester).focusable())
 
-                        // 1. ОФОРМЛЕНИЕ
                         SettingsSectionTitle("Оформление")
+
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             ThemePreviewCard("Светлая", themeMode == ThemeMode.LIGHT, Color(0xFFE0E0E0), Color.White, { onThemeChanged(ThemeMode.LIGHT) }, Modifier.weight(1f))
                             ThemePreviewCard("Темная", themeMode == ThemeMode.DARK, Color(0xFF2C2C2E), Color(0xFF1C1C1E), { onThemeChanged(ThemeMode.DARK) }, Modifier.weight(1f))
+                            ThemePreviewCard("Цвет", themeMode == ThemeMode.COLOR, Color(0xFFE91E63), Color(0xFF880E4F), { onThemeChanged(ThemeMode.COLOR) }, Modifier.weight(1f))
                         }
                         Spacer(modifier = Modifier.height(8.dp))
 
@@ -146,6 +166,37 @@ fun SettingsDialog(
                                 SettingsOptionRow("Авто-тема", { onThemeChanged(ThemeMode.AUTO) }) {
                                     RadioButton(selected = themeMode == ThemeMode.AUTO, onClick = { onThemeChanged(ThemeMode.AUTO) }, modifier = Modifier.size(18.dp), colors = RadioButtonDefaults.colors(selectedColor = Color(0xFF448AFF)))
                                 }
+
+                                if (themeMode == ThemeMode.COLOR) {
+                                    Divider(color = Color.Gray.copy(0.2f), thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 8.dp))
+                                    Column(modifier = Modifier.padding(8.dp)) {
+                                        Text("Цвет флипов (удерживайте для выбора)", color = Color.Gray, fontSize = 10.sp, modifier = Modifier.padding(bottom = 6.dp, start = 4.dp))
+
+                                        val cardColors = listOf(
+                                            0xFFFFFFFF.toInt(),
+                                            0xFF3A3A3A.toInt(),
+                                            0xFF1E88E5.toInt(),
+                                            0xFF43A047.toInt(),
+                                            0xFFE53935.toInt()
+                                        )
+
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                            cardColors.forEach { colorInt ->
+                                                ColorCircle(
+                                                    color = Color(colorInt),
+                                                    isSelected = currentCardColor == colorInt,
+                                                    onClick = { onCardColorChanged(colorInt) },
+                                                    onLongClick = {
+                                                        colorPickerMode = PickerMode.Card
+                                                        colorPickerInitialColor = colorInt
+                                                        showColorPicker = true
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
                                 Divider(color = Color.Gray.copy(0.2f), thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 8.dp))
                                 SettingsOptionRow("Тень цифр", { onShadowsChanged(!showShadows) }) {
                                     Switch(checked = showShadows, onCheckedChange = onShadowsChanged, modifier = Modifier.scale(0.6f), colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF448AFF), uncheckedThumbColor = Color.White, uncheckedTrackColor = Color(0xFF48484A)))
@@ -155,22 +206,18 @@ fun SettingsDialog(
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // 2. ФОН
                         SettingsSectionTitle("Фон")
                         Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF2C2C2E)), shape = RoundedCornerShape(8.dp)) {
                             Column(modifier = Modifier.padding(12.dp)) {
-
                                 if (bgImageUri != null) {
                                     Text("Изображение установлено", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom=8.dp))
 
-                                    // Шкала прозрачности (стиль как на картинке)
                                     LinearLabeledSlider(
                                         title = "Прозрачность",
                                         value = bgOpacity,
                                         onValueChange = onBgOpacityChanged
                                     )
 
-                                    // Шкала размытия (Android 12+)
                                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                                         Spacer(modifier = Modifier.height(12.dp))
                                         LinearLabeledSlider(
@@ -219,15 +266,17 @@ fun SettingsDialog(
                                     }
 
                                 } else {
-                                    // Палитра цветов
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                         palette.forEachIndexed { index, colorInt ->
-                                            ColorCircle(Color(colorInt), currentBgColor == colorInt, { onColorSelected(colorInt) }, { colorPickerIndex = index; colorPickerInitialColor = colorInt; showColorPicker = true })
+                                            ColorCircle(Color(colorInt), currentBgColor == colorInt, { onColorSelected(colorInt) }, {
+                                                colorPickerMode = PickerMode.Background
+                                                colorPickerIndex = index
+                                                colorPickerInitialColor = colorInt
+                                                showColorPicker = true
+                                            })
                                         }
                                     }
-
                                     Spacer(modifier = Modifier.height(16.dp))
-
                                     Button(
                                         onClick = { imagePickerLauncher.launch("image/*") },
                                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF333333)),
@@ -245,7 +294,6 @@ fun SettingsDialog(
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // 3. ЯРКОСТЬ
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             SettingsSectionTitle("Яркость", paddingBottom = 0.dp)
                             if (isAutoBrightness) {
@@ -257,13 +305,11 @@ fun SettingsDialog(
 
                         Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF2C2C2E)), shape = RoundedCornerShape(8.dp)) {
                             Column(modifier = Modifier.padding(12.dp)) {
-                                // Шкала яркости (стиль как на картинке)
                                 LinearLabeledSlider(
-                                    title = null, // Заголовок уже есть снаружи
+                                    title = null,
                                     value = brightness,
                                     onValueChange = onBrightnessChanged
                                 )
-
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Divider(color = Color.Gray.copy(alpha = 0.2f), thickness = 0.5.dp)
                                 SettingsOptionRow("Адаптивная", { onAutoBrightnessChanged(!isAutoBrightness) }) {
@@ -279,48 +325,317 @@ fun SettingsDialog(
     }
 }
 
-/**
- * Слайдер в стиле "Линейка" как на картинке:
- * Синяя полоса, белый кружок, подписи снизу.
- */
+enum class PickerMode { Background, Card }
+
+// === КОМПОНЕНТЫ ВЫБОРА ЦВЕТА ===
+
 @Composable
-fun LinearLabeledSlider(
-    title: String? = null,
-    value: Float,
-    onValueChange: (Float) -> Unit
+fun HsvColorPicker(
+    initialColor: Color,
+    onColorChanged: (Color) -> Unit,
+    isLandscape: Boolean
 ) {
-    Column {
-        if (title != null) {
-            Text(title, color = Color.Gray, fontSize = 10.sp, modifier = Modifier.padding(bottom = 2.dp))
+    val hsvState = remember {
+        val hsv = FloatArray(3)
+        colorToHSV(initialColor.toArgb(), hsv)
+        mutableStateOf(Triple(hsv[0], hsv[1], hsv[2]))
+    }
+
+    LaunchedEffect(initialColor) {
+        val currentHsv = FloatArray(3)
+        android.graphics.Color.colorToHSV(initialColor.toArgb(), currentHsv)
+        if (Math.abs(hsvState.value.first - currentHsv[0]) > 1f ||
+            Math.abs(hsvState.value.second - currentHsv[1]) > 0.01f ||
+            Math.abs(hsvState.value.third - currentHsv[2]) > 0.01f) {
+            hsvState.value = Triple(currentHsv[0], currentHsv[1], currentHsv[2])
+        }
+    }
+
+    val (hue, sat, `val`) = hsvState.value
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        // Панель Saturation/Value
+        // В ландшафте используем weight(1f) чтобы она занимала всё доступное место и сжималась
+        // В портрете используем aspectRatio
+        Box(modifier = if (isLandscape) Modifier.weight(1f).fillMaxWidth() else Modifier.fillMaxWidth().aspectRatio(1.3f)) {
+            SaturationValuePanel(
+                hue = hue,
+                saturation = sat,
+                value = `val`,
+                onSatValChanged = { newSat, newVal ->
+                    hsvState.value = Triple(hue, newSat, newVal)
+                    onColorChanged(Color.hsv(hue, newSat, newVal))
+                }
+            )
         }
 
-        // Сам слайдер
+        Spacer(modifier = Modifier.height(if(isLandscape) 8.dp else 12.dp))
+
+        HueSlider(
+            hue = hue,
+            onHueChanged = { newHue ->
+                hsvState.value = Triple(newHue, sat, `val`)
+                onColorChanged(Color.hsv(newHue, sat, `val`))
+            }
+        )
+    }
+}
+
+@Composable
+fun SaturationValuePanel(
+    hue: Float,
+    saturation: Float,
+    value: Float,
+    onSatValChanged: (Float, Float) -> Unit
+) {
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .clip(RoundedCornerShape(8.dp))
+            .border(1.dp, Color.Gray.copy(0.3f), RoundedCornerShape(8.dp))
+    ) {
+        val baseColor = Color.hsv(hue, 1f, 1f)
+
+        Canvas(modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectTapGestures { offset ->
+                    val newSat = (offset.x / size.width).coerceIn(0f, 1f)
+                    val newVal = 1f - (offset.y / size.height).coerceIn(0f, 1f)
+                    onSatValChanged(newSat, newVal)
+                }
+            }
+            .pointerInput(Unit) {
+                detectDragGestures { change, _ ->
+                    change.consume()
+                    val newSat = (change.position.x / size.width).coerceIn(0f, 1f)
+                    val newVal = 1f - (change.position.y / size.height).coerceIn(0f, 1f)
+                    onSatValChanged(newSat, newVal)
+                }
+            }
+        ) {
+            drawRect(color = baseColor)
+            drawRect(brush = Brush.horizontalGradient(colors = listOf(Color.White, Color.Transparent)))
+            drawRect(brush = Brush.verticalGradient(colors = listOf(Color.Transparent, Color.Black)))
+
+            val pxX = saturation * size.width
+            val pxY = (1f - value) * size.height
+            drawCircle(color = Color.White, radius = 8.dp.toPx(), center = Offset(pxX, pxY), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()))
+            drawCircle(color = Color.Black, radius = 8.dp.toPx(), center = Offset(pxX, pxY), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx()))
+        }
+    }
+}
+
+@Composable
+fun HueSlider(
+    hue: Float,
+    onHueChanged: (Float) -> Unit
+) {
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(16.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .border(1.dp, Color.Gray.copy(0.3f), RoundedCornerShape(12.dp))
+    ) {
+        val rainbowColors = listOf(
+            Color.Red, Color.Yellow, Color.Green, Color.Cyan, Color.Blue, Color.Magenta, Color.Red
+        )
+
+        Canvas(modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectTapGestures { offset ->
+                    val newHue = (offset.x / size.width * 360f).coerceIn(0f, 360f)
+                    onHueChanged(newHue)
+                }
+            }
+            .pointerInput(Unit) {
+                detectDragGestures { change, _ ->
+                    change.consume()
+                    val newHue = (change.position.x / size.width * 360f).coerceIn(0f, 360f)
+                    onHueChanged(newHue)
+                }
+            }
+        ) {
+            drawRect(brush = Brush.horizontalGradient(colors = rainbowColors))
+
+            val pxX = (hue / 360f) * size.width
+            drawLine(
+                color = Color.White,
+                start = Offset(pxX, 0f),
+                end = Offset(pxX, size.height),
+                strokeWidth = 3.dp.toPx()
+            )
+            drawCircle(
+                color = Color.White,
+                radius = 6.dp.toPx(),
+                center = Offset(pxX, size.height / 2),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx())
+            )
+        }
+    }
+}
+
+@Composable
+fun HexColorPickerDialog(initialColor: Int, onDismiss: () -> Unit, onColorConfirmed: (Int) -> Unit) {
+    var hexText by remember { mutableStateOf(String.format("%06X", (0xFFFFFF and initialColor))) }
+    var currentColor by remember { mutableStateOf(Color(initialColor)) }
+
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.5f))
+                .clickable(onClick = onDismiss)
+                .padding(16.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF2C2C2E)),
+                modifier = Modifier
+                    .fillMaxWidth(0.95f)
+                    .fillMaxHeight(if (isLandscape) 0.9f else Float.NaN) // В ландшафте занимаем 90% высоты
+                    .wrapContentHeight(if(isLandscape) Alignment.CenterVertically else Alignment.Top)
+                    .heightIn(max = 600.dp)
+                    .clickable(enabled = false) {}
+            ) {
+                Column(
+                    modifier = Modifier.padding(if(isLandscape) 12.dp else 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text("Выбор цвета", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(if(isLandscape) 8.dp else 16.dp))
+
+                    if (isLandscape) {
+                        // === ЛАНДШАФТНЫЙ РЕЖИМ (авто-масштаб) ===
+                        Row(
+                            modifier = Modifier.fillMaxSize(), // Занимаем все доступное место в карточке
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            // Левая колонка (Палитра) - забирает всё свободное место по вертикали
+                            Column(modifier = Modifier.weight(0.6f).fillMaxHeight()) {
+                                HsvColorPicker(
+                                    initialColor = currentColor,
+                                    onColorChanged = { newColor ->
+                                        currentColor = newColor
+                                        hexText = "%06X".format(newColor.toArgb() and 0xFFFFFF)
+                                    },
+                                    isLandscape = true
+                                )
+                            }
+
+                            // Правая колонка (Контролы)
+                            Column(
+                                modifier = Modifier.weight(0.4f).fillMaxHeight(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Box(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .height(32.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(currentColor)
+                                        .border(1.dp, Color.Gray, RoundedCornerShape(8.dp))
+                                )
+
+                                OutlinedTextField(
+                                    value = hexText,
+                                    onValueChange = { newValue ->
+                                        if (newValue.length <= 6) {
+                                            val filtered = newValue.uppercase().replace(Regex("[^0-9A-F]"), "")
+                                            hexText = filtered
+                                            try { if (filtered.length == 6) currentColor = Color(parseColor("#$filtered")) } catch(e: Exception){}
+                                        }
+                                    },
+                                    label = { Text("HEX", fontSize = 10.sp) },
+                                    singleLine = true,
+                                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.Gray, focusedBorderColor = Color(0xFF448AFF), unfocusedBorderColor = Color.Gray),
+                                    modifier = Modifier.fillMaxWidth(),
+                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
+                                )
+
+                                Spacer(modifier = Modifier.weight(1f))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End
+                                ) {
+                                    Button(
+                                        onClick = { try { onColorConfirmed(currentColor.toArgb()) } catch(e: Exception){} },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF448AFF)),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.height(32.dp).fillMaxWidth()
+                                    ) { Text("OK", fontSize = 12.sp) }
+                                }
+                            }
+                        }
+                    } else {
+                        // === ПОРТРЕТНЫЙ РЕЖИМ (старый) ===
+                        HsvColorPicker(
+                            initialColor = currentColor,
+                            onColorChanged = { newColor ->
+                                currentColor = newColor
+                                hexText = "%06X".format(newColor.toArgb() and 0xFFFFFF)
+                            },
+                            isLandscape = false
+                        )
+
+                        Spacer(Modifier.height(16.dp))
+                        Box(Modifier.fillMaxWidth().height(40.dp).clip(RoundedCornerShape(8.dp)).background(currentColor).border(1.dp, Color.Gray, RoundedCornerShape(8.dp)))
+                        Spacer(Modifier.height(16.dp))
+                        OutlinedTextField(
+                            value = hexText,
+                            onValueChange = { newValue ->
+                                if (newValue.length <= 6) {
+                                    val filtered = newValue.uppercase().replace(Regex("[^0-9A-F]"), "")
+                                    hexText = filtered
+                                    try { if (filtered.length == 6) currentColor = Color(parseColor("#$filtered")) } catch(e: Exception){}
+                                }
+                            },
+                            label = { Text("HEX код", fontSize = 12.sp) }, singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.Gray, focusedBorderColor = Color(0xFF448AFF), unfocusedBorderColor = Color.Gray),
+                            modifier = Modifier.fillMaxWidth(),
+                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp)
+                        )
+                        Spacer(Modifier.height(24.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(onClick = onDismiss) { Text("Отмена", color = Color.Gray) }
+                            Spacer(Modifier.width(8.dp))
+                            Button(
+                                onClick = { try { onColorConfirmed(currentColor.toArgb()) } catch(e: Exception){} },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF448AFF)),
+                                shape = RoundedCornerShape(8.dp)
+                            ) { Text("Применить") }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun LinearLabeledSlider(title: String? = null, value: Float, onValueChange: (Float) -> Unit) {
+    Column {
+        if (title != null) Text(title, color = Color.Gray, fontSize = 10.sp, modifier = Modifier.padding(bottom = 2.dp))
         Slider(
             value = value,
             onValueChange = onValueChange,
-            modifier = Modifier.fillMaxWidth().height(20.dp), // Фиксированная высота для компактности
-            colors = SliderDefaults.colors(
-                thumbColor = Color.White,
-                activeTrackColor = Color(0xFF448AFF), // Синий цвет как на картинке
-                inactiveTrackColor = Color.Gray.copy(alpha = 0.3f)
-            )
+            modifier = Modifier.fillMaxWidth().height(20.dp),
+            colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color(0xFF448AFF), inactiveTrackColor = Color.Gray.copy(alpha = 0.3f))
         )
-
-        // Подписи 0, 25, 50, 75, 100
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp), // Отступ, чтобы цифры совпадали с краями
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
+        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             val labels = listOf("0", "25", "50", "75", "100")
-            labels.forEach { label ->
-                Text(
-                    text = label,
-                    color = Color.Gray,
-                    fontSize = 9.sp,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.width(20.dp) // Фиксированная ширина для центровки
-                )
-            }
+            labels.forEach { label -> Text(text = label, color = Color.Gray, fontSize = 9.sp, textAlign = TextAlign.Center, modifier = Modifier.width(20.dp)) }
         }
     }
 }
@@ -356,40 +671,5 @@ fun ColorCircle(color: Color, isSelected: Boolean, onClick: () -> Unit, onLongCl
     Box(contentAlignment = Alignment.Center, modifier = Modifier.size(30.dp)) {
         if (isSelected) Box(Modifier.size(30.dp).border(1.5.dp, Color(0xFF448AFF).copy(0.7f), CircleShape))
         Box(Modifier.size(22.dp).clip(CircleShape).background(color).combinedClickable(onClick = onClick, onLongClick = onLongClick))
-    }
-}
-
-@Composable
-fun HexColorPickerDialog(initialColor: Int, onDismiss: () -> Unit, onColorConfirmed: (Int) -> Unit) {
-    var hexText by remember { mutableStateOf(String.format("%06X", (0xFFFFFF and initialColor))) }
-    var currentColor by remember { mutableStateOf(Color(initialColor)) }
-    Dialog(onDismissRequest = onDismiss) {
-        Card(shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF2C2C2E))) {
-            Column(Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Цвет", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(8.dp))
-                Box(Modifier.size(32.dp).clip(CircleShape).background(currentColor).border(1.dp, Color.Gray, CircleShape))
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = hexText,
-                    onValueChange = { newValue ->
-                        if (newValue.length <= 6) {
-                            val filtered = newValue.uppercase().replace(Regex("[^0-9A-F]"), "")
-                            hexText = filtered
-                            try { if (filtered.length == 6) currentColor = Color(android.graphics.Color.parseColor("#$filtered")) } catch(e: Exception){}
-                        }
-                    },
-                    label = { Text("HEX", fontSize = 10.sp) }, singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.Gray, focusedBorderColor = Color(0xFF448AFF), unfocusedBorderColor = Color.Gray),
-                    modifier = Modifier.fillMaxWidth(),
-                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
-                )
-                Spacer(Modifier.height(12.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = onDismiss) { Text("Отмена", color = Color.Gray, fontSize = 11.sp) }
-                    Button(onClick = { try { onColorConfirmed(android.graphics.Color.parseColor("#$hexText")) } catch(e: Exception){} }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF448AFF)), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp), modifier = Modifier.height(32.dp)) { Text("OK", fontSize = 11.sp) }
-                }
-            }
-        }
     }
 }
