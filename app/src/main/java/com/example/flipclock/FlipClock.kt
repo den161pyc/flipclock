@@ -506,7 +506,7 @@ fun BatteryIndicator(
                 }
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             // --- КНОПКА НАСТРОЕК (ВНИЗУ) ---
             VolumetricIconButton(
