@@ -1,20 +1,32 @@
 package com.example.flipclock
 
 import android.app.Activity
+import android.app.AlarmManager
+import android.content.BroadcastReceiver
+import android.content.ComponentName
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
+import android.provider.AlarmClock
+import android.widget.Toast
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -88,9 +100,8 @@ val LightThemeColors = ThemeColors(
 val CardCornerRadius = 16.dp
 const val CARD_ASPECT_RATIO = 0.65f
 
-// Пропорции элементов относительно ширины одной карты
 const val GEAR_WIDTH_RATIO = 0.12f
-const val BATTERY_GAP_RATIO = 0.4f
+const val BATTERY_GAP_RATIO = 0.55f
 
 // --- ОСНОВНОЙ ЭКРАН ---
 
@@ -118,6 +129,8 @@ fun FlipClockScreen(
 
     val batteryLevel by viewModel.batteryLevel.collectAsState(initial = 0)
     val isCharging by viewModel.isCharging.collectAsState(initial = false)
+
+    val currentBrightness by viewModel.currentScreenBrightness.collectAsState()
 
     val isSystemDark = isSystemInDarkTheme()
 
@@ -152,6 +165,74 @@ fun FlipClockScreen(
 
     val context = LocalContext.current
     val batteryContainerColor = currentTheme.cardGradientTop
+
+    // --- Логика будильника ---
+    val alarmManager = remember { context.getSystemService(Context.ALARM_SERVICE) as AlarmManager }
+    var isAlarmSet by remember { mutableStateOf(alarmManager.nextAlarmClock != null) }
+
+    DisposableEffect(Unit) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context?, i: Intent?) {
+                isAlarmSet = alarmManager.nextAlarmClock != null
+            }
+        }
+        context.registerReceiver(receiver, IntentFilter(AlarmManager.ACTION_NEXT_ALARM_CLOCK_CHANGED))
+        onDispose { context.unregisterReceiver(receiver) }
+    }
+
+    // ИСПРАВЛЕННАЯ ЛОГИКА ЗАПУСКА БУДИЛЬНИКА
+    val onAlarmClick = {
+        var intentFound = false
+
+        // 1. Попытка открыть стандартное окно будильников
+        try {
+            val intent = Intent(AlarmClock.ACTION_SHOW_ALARMS)
+            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            // Проверяем, есть ли приложение, способное обработать этот интент (важно!)
+            if (intent.resolveActivity(context.packageManager) != null) {
+                context.startActivity(intent)
+                intentFound = true
+            }
+        } catch (e: Exception) { e.printStackTrace() }
+
+        // 2. Если не вышло, пробуем открыть конкретные пакеты (Samsung, Google и др.)
+        if (!intentFound) {
+            val clockPackages = listOf(
+                "com.sec.android.app.clockpackage", // Samsung (OneUI)
+                "com.google.android.deskclock",     // Google Clock
+                "com.android.deskclock",            // AOSP Clock
+                "com.oneplus.deskclock",            // OnePlus
+                "com.miui.deskclock"                // Xiaomi
+            )
+
+            for (pkg in clockPackages) {
+                try {
+                    val launchIntent = context.packageManager.getLaunchIntentForPackage(pkg)
+                    if (launchIntent != null) {
+                        launchIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        context.startActivity(launchIntent)
+                        intentFound = true
+                        break
+                    }
+                } catch (ignored: Exception) { }
+            }
+        }
+
+        // 3. Если всё равно не вышло, уведомляем пользователя
+        if (!intentFound) {
+            Toast.makeText(context, "Не удалось найти приложение часов", Toast.LENGTH_SHORT).show()
+        }
+    }
+    // -------------------------
+
+    LaunchedEffect(currentBrightness) {
+        val activity = context.findActivity()
+        if (activity != null) {
+            val layoutParams = activity.window.attributes
+            layoutParams.screenBrightness = currentBrightness
+            activity.window.attributes = layoutParams
+        }
+    }
 
     val bgBitmap: ImageBitmap? by produceState<ImageBitmap?>(initialValue = null, key1 = bgImageUri) {
         value = if (bgImageUri != null) {
@@ -189,6 +270,7 @@ fun FlipClockScreen(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
+        // --- ФОН ---
         if (bgBitmap != null) {
             Box(Modifier.fillMaxSize().background(Color.Black))
             var imageModifier = Modifier.fillMaxSize().graphicsLayer { alpha = bgOpacity }
@@ -205,6 +287,7 @@ fun FlipClockScreen(
             Box(Modifier.fillMaxSize().background(currentTheme.cardGradientTop))
         }
 
+        // --- РАСЧЕТ РАЗМЕРОВ ---
         val totalWidthUnits = 4f + (2 * GEAR_WIDTH_RATIO) + BATTERY_GAP_RATIO
 
         val maxAvailableWidth = maxWidth * 0.96f
@@ -225,6 +308,7 @@ fun FlipClockScreen(
         val density = LocalDensity.current
         val fontSize = with(density) { (finalCardHeight * 0.85f).toSp() }
 
+        // --- ВЕРСТКА ЧАСОВ ---
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
@@ -241,10 +325,11 @@ fun FlipClockScreen(
                 separatorColor = separatorColor
             )
 
+            // ЦЕНТР: Индикатор батареи и настроек
             Box(
                 modifier = Modifier
                     .width(batteryGapWidth)
-                    .height(finalCardHeight * 0.55f),
+                    .height(finalCardHeight),
                 contentAlignment = Alignment.Center
             ) {
                 BatteryIndicator(
@@ -253,6 +338,9 @@ fun FlipClockScreen(
                     showShadows = showShadows,
                     backgroundColor = batteryContainerColor,
                     flipTheme = currentTheme,
+                    onSettingsClick = { showSettings = true },
+                    isAlarmSet = isAlarmSet,
+                    onAlarmClick = { onAlarmClick() },
                     modifier = Modifier.fillMaxSize().scale(0.85f)
                 )
             }
@@ -266,18 +354,6 @@ fun FlipClockScreen(
                 theme = currentTheme,
                 showShadows = showShadows,
                 separatorColor = separatorColor
-            )
-        }
-
-        IconButton(
-            onClick = { showSettings = true },
-            modifier = Modifier.align(Alignment.BottomCenter).padding(32.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.Settings,
-                contentDescription = "Settings",
-                tint = if (bgBitmap != null) Color.White.copy(0.7f) else currentTheme.text.copy(0.6f),
-                modifier = Modifier.size(32.dp)
             )
         }
 
@@ -350,6 +426,9 @@ fun BatteryIndicator(
     showShadows: Boolean,
     backgroundColor: Color,
     flipTheme: ThemeColors,
+    onSettingsClick: () -> Unit,
+    isAlarmSet: Boolean,
+    onAlarmClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val activeSegmentsCount = ceil(level / 20.0).toInt().coerceIn(0, 5)
@@ -359,9 +438,8 @@ fun BatteryIndicator(
         animationSpec = infiniteRepeatable(tween(1000, easing = EaseInOutSine), RepeatMode.Reverse)
     )
 
-    val pillShape = RoundedCornerShape(100)
-    val containerShape = RoundedCornerShape(16.dp)
-    val centerColor = Color(0xFF1A1A1A)
+    val containerShape = RoundedCornerShape(8.dp)
+    val buttonModifier = Modifier.size(45.dp).aspectRatio(1f)
 
     Box(
         modifier = modifier
@@ -369,42 +447,131 @@ fun BatteryIndicator(
             .clip(containerShape)
             .background(Brush.verticalGradient(listOf(backgroundColor, backgroundColor.copy(red = backgroundColor.red * 0.9f, green = backgroundColor.green * 0.9f, blue = backgroundColor.blue * 0.9f))))
             .border(1.dp, Color.White.copy(alpha = 0.05f), containerShape)
-            .padding(vertical = 12.dp, horizontal = 10.dp)
+            .padding(vertical = 6.dp, horizontal = 20.dp)
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            for (i in 5 downTo 1) {
-                val isActive = i <= activeSegmentsCount
-                val baseGlowColor = when {
-                    level == 100 -> Color(0xFF66BB6A)
-                    level <= 20 && i == 1 -> Color(0xFFEF5350)
-                    else -> Color(0xFFFFB74D)
-                }
-                val isBlinking = isCharging && isActive && (i == activeSegmentsCount)
-                val currentGlowAlpha = if (isBlinking) pulseAlpha else 1f
-                val rimThickness = 6.dp
+            // --- ИКОНКА БУДИЛЬНИКА (ВЕРХУ) ---
+            VolumetricIconButton(
+                onClick = onAlarmClick,
+                modifier = buttonModifier
+            ) {
+                AlarmIcon(
+                    isActive = isAlarmSet,
+                    color = if (isAlarmSet) Color.White else flipTheme.text.copy(alpha = 0.5f)
+                )
+            }
 
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(0.9f)
-                        .then(if (isActive && showShadows) Modifier.shadow(4.dp, pillShape, false, Color.Black.copy(0.3f), Color.Black.copy(0.6f)) else Modifier)
-                        .then(if (isActive && showShadows) Modifier.shadow(12.dp, pillShape, false, baseGlowColor, baseGlowColor) else Modifier)
-                        .clip(pillShape)
-                        .then(if (isActive) Modifier.border(BorderStroke(1.dp, centerColor), pillShape) else Modifier)
-                        .background(
-                            if (isActive) Brush.radialGradient(listOf(baseGlowColor.copy(alpha=currentGlowAlpha), baseGlowColor.copy(alpha=currentGlowAlpha*0.8f)))
-                            else SolidColor(Color(0xFF333333))
-                        )
-                ) {
-                    Box(modifier = Modifier.fillMaxSize().padding(rimThickness).clip(pillShape).background(centerColor))
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // --- ИНДИКАТОРЫ ЗАРЯДА ---
+            Column(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                val pillShape = RoundedCornerShape(100)
+                val centerColor = Color(0xFF1A1A1A)
+
+                for (i in 5 downTo 1) {
+                    val isActive = i <= activeSegmentsCount
+
+                    val baseGlowColor = when {
+                        level > 79 -> Color(0xFF66BB6A)
+                        level < 16 && i == 1 -> Color(0xFFEF5350)
+                        else -> Color(0xFFFFB74D)
+                    }
+
+                    val isBlinking = isCharging && isActive && (i == activeSegmentsCount)
+                    val currentGlowAlpha = if (isBlinking) pulseAlpha else 1f
+                    val rimThickness = 10.dp
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(0.9f)
+                            .then(if (isActive && showShadows) Modifier.shadow(4.dp, pillShape, false, Color.Black.copy(0.3f), Color.Black.copy(0.6f)) else Modifier)
+                            .then(if (isActive && showShadows) Modifier.shadow(12.dp, pillShape, false, baseGlowColor, baseGlowColor) else Modifier)
+                            .clip(pillShape)
+                            .then(if (isActive) Modifier.border(BorderStroke(1.dp, centerColor), pillShape) else Modifier)
+                            .background(
+                                if (isActive) Brush.radialGradient(listOf(baseGlowColor.copy(alpha=currentGlowAlpha), baseGlowColor.copy(alpha=currentGlowAlpha*0.8f)))
+                                else SolidColor(Color(0xFF333333))
+                            )
+                    ) {
+                        Box(modifier = Modifier.fillMaxSize().padding(rimThickness).clip(pillShape).background(centerColor))
+                    }
                 }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // --- КНОПКА НАСТРОЕК (ВНИЗУ) ---
+            VolumetricIconButton(
+                onClick = onSettingsClick,
+                modifier = buttonModifier
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = "Settings",
+                    tint = flipTheme.text.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxSize()
+                )
             }
         }
     }
+}
+
+// === ОБЪЕМНАЯ КНОПКА (Volumetric Button) ===
+@Composable
+fun VolumetricIconButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    shape: Shape = CircleShape,
+    content: @Composable () -> Unit
+) {
+    Box(
+        modifier = modifier
+            .shadow(6.dp, shape)
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFF3A3A3A),
+                        Color(0xFF202020)
+                    )
+                ),
+                shape = shape
+            )
+            .border(
+                width = 1.dp,
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.15f),
+                        Color.Black.copy(alpha = 0.3f)
+                    )
+                ),
+                shape = shape
+            )
+            .clip(shape)
+            .clickable(onClick = onClick)
+            .padding(6.dp), // Отступ внутри кнопки до иконки
+        contentAlignment = Alignment.Center
+    ) {
+        content()
+    }
+}
+
+// === ИКОНКА БУДИЛЬНИКА (Векторная) ===
+@Composable
+fun AlarmIcon(isActive: Boolean, color: Color) {
+    Icon(
+        imageVector = Icons.Default.Alarm,
+        contentDescription = "Alarm",
+        tint = color,
+        modifier = Modifier.fillMaxSize()
+    )
 }
 
 @Composable
@@ -469,7 +636,7 @@ fun FlipCard(
 
         Box(modifier = Modifier.fillMaxSize().zIndex(-1f)) {
             // ВЕРХНЯЯ СТОПКА (2 листа)
-            for (i in 1..2) {
+            for (i in 2 downTo 1) {
                 val topStackShape = RoundedCornerShape(topStart = CardCornerRadius, topEnd = CardCornerRadius)
                 Box(
                     modifier = Modifier
@@ -477,7 +644,6 @@ fun FlipCard(
                         .height(height / 2)
                         .align(Alignment.TopCenter)
                         .offset(y = -stackOffset * i)
-                        // Тень от каждого листа
                         .then(if (showShadows) Modifier.shadow(1.dp, topStackShape) else Modifier)
                         .clip(topStackShape)
                         .background(cardBrush)
@@ -487,7 +653,7 @@ fun FlipCard(
             }
 
             // НИЖНЯЯ СТОПКА (3 листа)
-            for (i in 1..3) {
+            for (i in 3 downTo 1) {
                 val bottomStackShape = RoundedCornerShape(bottomStart = CardCornerRadius, bottomEnd = CardCornerRadius)
 
                 Box(
@@ -496,16 +662,13 @@ fun FlipCard(
                         .height(height / 2)
                         .align(Alignment.BottomCenter)
                         .offset(y = stackOffset * i)
-                        // Тень от каждого листа
                         .then(if (showShadows) Modifier.shadow(1.dp, bottomStackShape) else Modifier)
                         .clip(bottomStackShape)
                         .background(cardBrush)
                 ) {
-                    // Затемнение (светлое)
                     val alpha = (0.05f * i).coerceAtMost(0.5f)
                     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = alpha)))
 
-                    // Тень от основного флипа на первую карточку в нижней стопке
                     if (i == 1 && showShadows) {
                         Box(
                             modifier = Modifier

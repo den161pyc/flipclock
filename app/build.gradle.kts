@@ -57,4 +57,5 @@ dependencies {
     implementation(libs.androidx.activity.ktx)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.compose.material.icons.extended)
 }
