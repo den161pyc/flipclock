@@ -137,6 +137,7 @@ class BrightnessViewModel(application: Application) : AndroidViewModel(applicati
                     prefs[key] ?: DEFAULT_PALETTE[index]
                 }
                 _palette.value = loadedPalette
+                if (_isAutoBrightness.value && sensorManager != null) registerSensor()
 
                 recalculateBrightness()
             }
@@ -227,10 +228,24 @@ class BrightnessViewModel(application: Application) : AndroidViewModel(applicati
 
     private fun recalculateBrightness() {
         if (_isAutoBrightness.value) {
-            val sensorBrightness = min(1f, currentLuxValue / 1000f)
-            val finalBrightness = max(sensorBrightness, _manualBrightness.value)
-            _currentScreenBrightness.value = finalBrightness.coerceAtLeast(0.01f)
+            // 1. Базовая яркость от датчика.
+            // Увеличили делитель до 3000f, чтобы растянуть диапазон.
+            // Теперь 100% яркости от датчика будет только при очень ярком свете (3000 люкс).
+            // Это дает запас для работы вашего "смещения" вверх.
+            val sensorBrightness = min(1f, currentLuxValue / 3000f)
+
+            // 2. Вычисляем смещение (Offset).
+            // Слайдер (manualBrightness) выдает от 0.0 до 1.0.
+            // Мы превращаем это в диапазон от -0.5 до +0.5.
+            // 0.5 на слайдере = 0 смещения (как решил датчик).
+            val offset = _manualBrightness.value - 0.5f
+
+            // 3. Складываем и ограничиваем результат (не меньше 1% и не больше 100%)
+            val finalBrightness = (sensorBrightness + offset).coerceIn(0.01f, 1f)
+
+            _currentScreenBrightness.value = finalBrightness
         } else {
+            // В ручном режиме слайдер работает как обычная регулировка (0..100%)
             _currentScreenBrightness.value = _manualBrightness.value.coerceAtLeast(0.01f)
         }
     }

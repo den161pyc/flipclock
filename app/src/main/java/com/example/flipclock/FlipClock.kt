@@ -99,7 +99,7 @@ val CardCornerRadius = 16.dp
 const val CARD_ASPECT_RATIO = 0.65f
 
 const val GEAR_WIDTH_RATIO = 0.12f
-const val BATTERY_GAP_RATIO = 0.55f
+const val BATTERY_GAP_RATIO = 0.45f
 
 // --- ОСНОВНОЙ ЭКРАН ---
 
@@ -351,6 +351,7 @@ fun FlipClockScreen(
                     onSettingsClick = { showSettings = true },
                     isAlarmSet = isAlarmSet,
                     onAlarmClick = { onAlarmClick() },
+                    containerWidth = batteryGapWidth,
                     modifier = Modifier.fillMaxSize().scale(0.85f)
                 )
             }
@@ -439,6 +440,7 @@ fun BatteryIndicator(
     onSettingsClick: () -> Unit,
     isAlarmSet: Boolean,
     onAlarmClick: () -> Unit,
+    containerWidth: Dp, // <--- НОВЫЙ ПАРАМЕТР
     modifier: Modifier = Modifier
 ) {
     val activeSegmentsCount = ceil(level / 20.0).toInt().coerceIn(0, 5)
@@ -448,8 +450,18 @@ fun BatteryIndicator(
         animationSpec = infiniteRepeatable(tween(1000, easing = EaseInOutSine), RepeatMode.Reverse)
     )
 
+    // --- ДИНАМИЧЕСКИЕ РАЗМЕРЫ ---
+    // Рассчитываем размеры как % от ширины контейнера
+    val horizontalPadding = containerWidth * 0.15f // 15% отступ сбоку (вместо 20dp)
+    val verticalPadding = containerWidth * 0.1f    // Отступ сверху/снизу
+
+    val buttonSize = containerWidth * 0.7f         // Кнопка занимает 70% ширины (вместо 45dp)
+    val buttonInnerPadding = buttonSize * 0.15f    // Отступ внутри кнопки (вместо 6dp)
+
+    val rimThickness = containerWidth * 0.09f      // Толщина рамки индикатора 5% (вместо 10dp)
+    // ----------------------------
+
     val containerShape = RoundedCornerShape(8.dp)
-    val buttonModifier = Modifier.size(45.dp).aspectRatio(1f)
 
     Box(
         modifier = modifier
@@ -457,16 +469,17 @@ fun BatteryIndicator(
             .clip(containerShape)
             .background(Brush.verticalGradient(listOf(backgroundColor, backgroundColor.copy(red = backgroundColor.red * 0.9f, green = backgroundColor.green * 0.9f, blue = backgroundColor.blue * 0.9f))))
             .border(1.dp, Color.White.copy(alpha = 0.05f), containerShape)
-            .padding(vertical = 6.dp, horizontal = 20.dp)
+            .padding(vertical = verticalPadding, horizontal = horizontalPadding) // ИСПОЛЬЗУЕМ ДИНАМИЧЕСКИЙ ОТСТУП
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // --- ИКОНКА БУДИЛЬНИКА (ВЕРХУ) ---
+            // --- КНОПКА БУДИЛЬНИКА ---
             VolumetricIconButton(
                 onClick = onAlarmClick,
-                modifier = buttonModifier
+                modifier = Modifier.size(buttonSize).aspectRatio(1f), // ДИНАМИЧЕСКИЙ РАЗМЕР
+                innerPadding = buttonInnerPadding // Передаем динамический отступ
             ) {
                 AlarmIcon(
                     isActive = isAlarmSet,
@@ -474,12 +487,12 @@ fun BatteryIndicator(
                 )
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             // --- ИНДИКАТОРЫ ЗАРЯДА ---
             Column(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 val pillShape = RoundedCornerShape(100)
@@ -496,12 +509,11 @@ fun BatteryIndicator(
 
                     val isBlinking = isCharging && isActive && (i == activeSegmentsCount)
                     val currentGlowAlpha = if (isBlinking) pulseAlpha else 1f
-                    val rimThickness = 10.dp
 
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .fillMaxWidth(0.9f)
+                            .fillMaxWidth() // Растягиваем на доступную ширину (внутри padding)
                             .then(if (isActive && showShadows) Modifier.shadow(4.dp, pillShape, false, Color.Black.copy(0.3f), Color.Black.copy(0.6f)) else Modifier)
                             .then(if (isActive && showShadows) Modifier.shadow(12.dp, pillShape, false, baseGlowColor, baseGlowColor) else Modifier)
                             .clip(pillShape)
@@ -511,22 +523,25 @@ fun BatteryIndicator(
                                 else SolidColor(Color(0xFF333333))
                             )
                     ) {
+                        // ИСПОЛЬЗУЕМ ДИНАМИЧЕСКУЮ ТОЛЩИНУ РАМКИ
                         Box(modifier = Modifier.fillMaxSize().padding(rimThickness).clip(pillShape).background(centerColor))
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            // --- КНОПКА НАСТРОЕК (ВНИЗУ) ---
+            // --- КНОПКА НАСТРОЕК ---
             VolumetricIconButton(
                 onClick = onSettingsClick,
-                modifier = buttonModifier
+                modifier = Modifier.size(buttonSize).aspectRatio(1f), // ДИНАМИЧЕСКИЙ РАЗМЕР
+                innerPadding = buttonInnerPadding // Передаем динамический отступ
             ) {
                 Icon(
                     imageVector = Icons.Default.Settings,
                     contentDescription = "Settings",
-                    tint = flipTheme.text.copy(alpha = 0.5f),
+                    tint = Color.White,
+                    //tint = flipTheme.text.copy(alpha = 0.5f),
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -540,33 +555,17 @@ fun VolumetricIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     shape: Shape = CircleShape,
+    innerPadding: Dp = 6.dp, // <--- НОВЫЙ ПАРАМЕТР с дефолтным значением
     content: @Composable () -> Unit
 ) {
     Box(
         modifier = modifier
             .shadow(6.dp, shape)
-            .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFF3A3A3A),
-                        Color(0xFF202020)
-                    )
-                ),
-                shape = shape
-            )
-            .border(
-                width = 1.dp,
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = 0.15f),
-                        Color.Black.copy(alpha = 0.3f)
-                    )
-                ),
-                shape = shape
-            )
+            .background(Brush.verticalGradient(colors = listOf(Color(0xFF3A3A3A), Color(0xFF202020))), shape = shape)
+            .border(width = 1.dp, brush = Brush.verticalGradient(colors = listOf(Color.White.copy(alpha = 0.15f), Color.Black.copy(alpha = 0.3f))), shape = shape)
             .clip(shape)
             .clickable(onClick = onClick)
-            .padding(6.dp), // Отступ внутри кнопки до иконки
+            .padding(innerPadding), // <--- ИСПОЛЬЗУЕМ ЗДЕСЬ
         contentAlignment = Alignment.Center
     ) {
         content()
