@@ -3,12 +3,10 @@ package com.example.flipclock
 import android.app.Activity
 import android.app.AlarmManager
 import android.content.BroadcastReceiver
-import android.content.ComponentName
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
@@ -20,7 +18,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -34,7 +31,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
@@ -54,7 +50,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Density
@@ -62,7 +57,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -73,6 +67,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.util.Calendar
 import kotlin.math.ceil
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import com.example.flipclock.ui.theme.ClockFontFamily
 
 // --- ТЕМЫ И КОНСТАНТЫ ---
 
@@ -165,7 +163,19 @@ fun FlipClockScreen(
 
     val context = LocalContext.current
     val batteryContainerColor = currentTheme.cardGradientTop
+    val lifecycleOwner = LocalLifecycleOwner.current
 
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                hideSystemBars(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
     // --- Логика будильника ---
     val alarmManager = remember { context.getSystemService(Context.ALARM_SERVICE) as AlarmManager }
     var isAlarmSet by remember { mutableStateOf(alarmManager.nextAlarmClock != null) }
@@ -731,7 +741,7 @@ fun NumberTile(
 
     Box(modifier = modifier.fillMaxSize().clip(shape).background(backgroundBrush), contentAlignment = Alignment.Center) {
         Box(modifier = Modifier.fillMaxSize().background(shineBrush))
-        Text(text = number, fontSize = fontSize, fontWeight = FontWeight.Bold, color = theme.text, textAlign = TextAlign.Center)
+        Text(text = number, fontSize = fontSize, fontWeight = FontWeight.Bold, fontFamily = ClockFontFamily, color = theme.text, textAlign = TextAlign.Center)
     }
 }
 
