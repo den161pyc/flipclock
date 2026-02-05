@@ -18,7 +18,6 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlin.math.max
 import kotlin.math.min
 
 private val Context.dataStore by preferencesDataStore(name = "settings_v6")
@@ -48,12 +47,23 @@ class BrightnessViewModel(application: Application) : AndroidViewModel(applicati
         intPreferencesKey("p0"), intPreferencesKey("p1"), intPreferencesKey("p2"),
         intPreferencesKey("p3"), intPreferencesKey("p4")
     )
-
+    // ДОБАВИТЬ: Ключи для палитры карточек
+    private val KEYS_CARD_PALETTE = listOf(
+        intPreferencesKey("cp0"), intPreferencesKey("cp1"), intPreferencesKey("cp2"),
+        intPreferencesKey("cp3"), intPreferencesKey("cp4")
+    )
     private val DEFAULT_PALETTE = listOf(
         0xFF448AFF.toInt(), 0xFFFFC107.toInt(), 0xFF4CAF50.toInt(),
         0xFF9C27B0.toInt(), 0xFFE91E63.toInt()
     )
-
+    // ДОБАВИТЬ: Палитра по умолчанию
+    private val DEFAULT_CARD_PALETTE = listOf(
+        0xFFFFFFFF.toInt(),
+        0xFF3A3A3A.toInt(),
+        0xFF1E88E5.toInt(),
+        0xFF43A047.toInt(),
+        0xFFE53935.toInt()
+    )
     private var currentLuxValue: Float = 0f
     private val _sensorLuxString = MutableStateFlow("Lux: --")
     val sensorLuxString = _sensorLuxString.asStateFlow()
@@ -79,6 +89,9 @@ class BrightnessViewModel(application: Application) : AndroidViewModel(applicati
 
     private val _palette = MutableStateFlow(DEFAULT_PALETTE)
     val palette = _palette.asStateFlow()
+
+    private val _cardPalette = MutableStateFlow(DEFAULT_CARD_PALETTE)
+    val cardPalette = _cardPalette.asStateFlow()
 
     private val _bgImageUri = MutableStateFlow<String?>(null)
     val bgImageUri = _bgImageUri.asStateFlow()
@@ -139,6 +152,12 @@ class BrightnessViewModel(application: Application) : AndroidViewModel(applicati
                 _palette.value = loadedPalette
                 if (_isAutoBrightness.value && sensorManager != null) registerSensor()
 
+                // ДОБАВИТЬ: Загрузка палитры карточек
+                val loadedCardPalette = KEYS_CARD_PALETTE.mapIndexed { index, key ->
+                    prefs[key] ?: DEFAULT_CARD_PALETTE[index]
+                }
+                _cardPalette.value = loadedCardPalette
+
                 recalculateBrightness()
             }
         }
@@ -169,17 +188,28 @@ class BrightnessViewModel(application: Application) : AndroidViewModel(applicati
             }
         }
     }
-
     fun setBgOpacity(value: Float) { _bgOpacity.value = value; saveFloat(KEY_BG_OPACITY, value) }
     fun setBgBlur(value: Float) { _bgBlur.value = value; saveFloat(KEY_BG_BLUR, value) }
     fun setBgStretch(enabled: Boolean) { _bgStretch.value = enabled; saveBoolean(KEY_BG_STRETCH, enabled) }
-
     // Функция установки цвета карточек
     fun setCardColor(color: Int) {
         _cardColor.value = color
         saveInt(KEY_CARD_COLOR, color)
     }
-
+    // ДОБАВИТЬ: Функция обновления цвета в палитре карточек
+    fun updateCardPaletteColor(index: Int, newColor: Int) {
+        val current = _cardPalette.value.toMutableList()
+        if (index in current.indices) {
+            current[index] = newColor
+            _cardPalette.value = current
+            setCardColor(newColor) // Сразу применяем выбранный цвет
+            viewModelScope.launch {
+                getApplication<Application>().applicationContext.dataStore.edit { prefs ->
+                    prefs[KEYS_CARD_PALETTE[index]] = newColor
+                }
+            }
+        }
+    }
     fun setThemeMode(mode: ThemeMode) { _themeMode.value = mode; saveString(KEY_THEME, mode.name) }
     fun setBackgroundColor(color: Int) { _backgroundColor.value = color; saveInt(KEY_BG_COLOR, color) }
     fun toggleShadows(enabled: Boolean) { _showShadows.value = enabled; saveBoolean(KEY_SHOW_SHADOW, enabled) }

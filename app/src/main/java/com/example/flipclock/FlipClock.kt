@@ -113,6 +113,8 @@ fun FlipClockScreen(
     val themeMode by viewModel.themeMode.collectAsState(initial = ThemeMode.DARK)
     val bgColorInt by viewModel.backgroundColor.collectAsState(initial = 0xFF121212.toInt())
     val palette by viewModel.palette.collectAsState(initial = listOf())
+    // Получаем палитру карточек
+    val cardPalette by viewModel.cardPalette.collectAsState(initial = listOf())
     val isAutoBrightness by viewModel.isAutoBrightness.collectAsState(initial = false)
     val manualVal by viewModel.manualBrightness.collectAsState(initial = 0.5f)
     val luxStr by viewModel.sensorLuxString.collectAsState(initial = "Lux: --")
@@ -294,8 +296,7 @@ fun FlipClockScreen(
                 contentScale = if (bgStretch) ContentScale.Crop else ContentScale.Fit
             )
         } else {
-            Box(Modifier.fillMaxSize().background(currentTheme.cardGradientTop))
-        }
+            Box(Modifier.fillMaxSize().background(Color(bgColorInt)))        }
 
         // --- РАСЧЕТ РАЗМЕРОВ ---
         val totalWidthUnits = 4f + (2 * GEAR_WIDTH_RATIO) + BATTERY_GAP_RATIO
@@ -375,6 +376,9 @@ fun FlipClockScreen(
                 currentBgColor = bgColorInt, palette = palette,
                 onColorSelected = { viewModel.setBackgroundColor(it) },
                 onPaletteEdited = { index, color -> viewModel.updatePaletteColor(index, color) },
+                // Изменяем передачу cardColors и добавляем обработчик
+                cardColors = cardPalette, // Передаем динамическую палитру вместо null/хардкода
+                onCardPaletteEdited = { index, color -> viewModel.updateCardPaletteColor(index, color) },
                 isAutoBrightness = isAutoBrightness, onAutoBrightnessChanged = { viewModel.toggleAutoBrightness(it) },
                 brightness = manualVal, onBrightnessChanged = { viewModel.setManualBrightness(it) },
                 luxString = luxStr, showShadows = showShadows, onShadowsChanged = { viewModel.toggleShadows(it) },

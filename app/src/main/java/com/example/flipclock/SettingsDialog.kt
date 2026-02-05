@@ -17,7 +17,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,19 +30,15 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.delay
-import kotlin.math.abs
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -70,6 +65,8 @@ fun SettingsDialog(
     onBgBlurChanged: (Float) -> Unit,
     bgStretch: Boolean,
     onBgStretchChanged: (Boolean) -> Unit,
+    cardColors: List<Int>, // Принимаем список извне
+    onCardPaletteEdited: (Int, Int) -> Unit, // Callback для редактирования
     currentCardColor: Int,
     onCardColorChanged: (Int) -> Unit
 ) {
@@ -79,7 +76,7 @@ fun SettingsDialog(
     var colorPickerInitialColor by remember { mutableIntStateOf(0) }
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         onBgImageSelected(uri)
     }
@@ -101,7 +98,12 @@ fun SettingsDialog(
                 if (colorPickerMode == PickerMode.Background) {
                     onPaletteEdited(colorPickerIndex, newColor)
                 } else {
-                    onCardColorChanged(newColor)
+                    // ИСПРАВЛЕНИЕ: Обновляем палитру карточек по индексу
+                    if (colorPickerIndex != -1) {
+                        onCardPaletteEdited(colorPickerIndex, newColor)
+                    } else {
+                        onCardColorChanged(newColor)
+                    }
                 }
                 showColorPicker = false
             }
@@ -157,20 +159,20 @@ fun SettingsDialog(
                     ) {
                         Box(Modifier.size(1.dp).focusRequester(focusRequester).focusable())
 
-                        SettingsSectionTitle("Оформление")
+                        SettingsSectionTitle("Оформление флипов")
 
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            ThemePreviewCard("Светлая", themeMode == ThemeMode.LIGHT, Color(0xFFE0E0E0), Color.White, { onThemeChanged(ThemeMode.LIGHT) }, Modifier.weight(1f))
-                            ThemePreviewCard("Темная", themeMode == ThemeMode.DARK, Color(0xFF2C2C2E), Color(0xFF1C1C1E), { onThemeChanged(ThemeMode.DARK) }, Modifier.weight(1f))
-                            ThemePreviewCard("Цвет", themeMode == ThemeMode.COLOR, Color(0xFFE91E63), Color(0xFF880E4F), { onThemeChanged(ThemeMode.COLOR) }, Modifier.weight(1f))
+                            ThemePreviewCard("Светлые", themeMode == ThemeMode.LIGHT, Color(0xFFE0E0E0), Color.White, { onThemeChanged(ThemeMode.LIGHT) }, Modifier.weight(1f))
+                            ThemePreviewCard("Темные", themeMode == ThemeMode.DARK, Color(0xFF2C2C2E), Color(0xFF1C1C1E), { onThemeChanged(ThemeMode.DARK) }, Modifier.weight(1f))
+                            ThemePreviewCard("Свой цвет", themeMode == ThemeMode.COLOR, Color(0xFFE91E63), Color(0xFF880E4F), { onThemeChanged(ThemeMode.COLOR) }, Modifier.weight(1f))
                         }
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF2C2C2E)), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
-                            Column {
+                        Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF2C2C2E)), shape = RoundedCornerShape(8.dp)) {
+                            Column (modifier = Modifier.padding(12.dp)){
                                 // Авто-тема Switch
                                 SettingsOptionRow(
-                                    "Авто-тема",
+                                    "Как в системе",
                                     {
                                         if (themeMode == ThemeMode.AUTO) onThemeChanged(ThemeMode.DARK)
                                         else onThemeChanged(ThemeMode.AUTO)
@@ -188,26 +190,20 @@ fun SettingsDialog(
                                 }
 
                                 if (themeMode == ThemeMode.COLOR) {
-                                    Divider(color = Color.Gray.copy(0.2f), thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 8.dp))
-                                    Column(modifier = Modifier.padding(8.dp)) {
+                                    Divider(color = Color.Gray.copy(0.2f), thickness = 0.5.dp)
+                                    Column {
+
                                         Text("Цвет флипов (удерживайте для выбора)", color = Color.Gray, fontSize = 10.sp, modifier = Modifier.padding(bottom = 6.dp, start = 4.dp))
 
-                                        val cardColors = listOf(
-                                            0xFFFFFFFF.toInt(),
-                                            0xFF3A3A3A.toInt(),
-                                            0xFF1E88E5.toInt(),
-                                            0xFF43A047.toInt(),
-                                            0xFFE53935.toInt()
-                                        )
-
                                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                            cardColors.forEach { colorInt ->
+                                            cardColors.forEachIndexed { index, colorInt -> // Добавляем index
                                                 ColorCircle(
                                                     color = Color(colorInt),
                                                     isSelected = currentCardColor == colorInt,
                                                     onClick = { onCardColorChanged(colorInt) },
                                                     onLongClick = {
                                                         colorPickerMode = PickerMode.Card
+                                                        colorPickerIndex = index // ВАЖНО: Запоминаем индекс
                                                         colorPickerInitialColor = colorInt
                                                         showColorPicker = true
                                                     }
@@ -217,8 +213,9 @@ fun SettingsDialog(
                                     }
                                 }
 
-                                Divider(color = Color.Gray.copy(0.2f), thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 8.dp))
+                                Divider(color = Color.Gray.copy(0.2f), thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 8.dp), )
                                 // ИЗМЕНЕНИЕ: Тень - Switch, название "Тень"
+                                Spacer(modifier = Modifier.height(8.dp))
                                 SettingsOptionRow("Тень", { onShadowsChanged(!showShadows) }) {
                                     Switch(checked = showShadows, onCheckedChange = onShadowsChanged, modifier = Modifier.scale(0.6f), colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF448AFF), uncheckedThumbColor = Color.White, uncheckedTrackColor = Color(0xFF48484A)))
                                 }
@@ -253,7 +250,7 @@ fun SettingsDialog(
 
                                     // Растянуть на экран - Switch
                                     SettingsOptionRow(
-                                        "Растянуть на экран",
+                                        "Растянуть",
                                         { onBgStretchChanged(!bgStretch) }
                                     ) {
                                         Switch(
@@ -278,7 +275,7 @@ fun SettingsDialog(
                                         Spacer(modifier = Modifier.width(12.dp))
 
                                         Button(
-                                            onClick = { imagePickerLauncher.launch("image/*") },
+                                            onClick = { imagePickerLauncher.launch(arrayOf("image/*")) },
                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF333333)),
                                             contentPadding = PaddingValues(0.dp),
                                             modifier = Modifier.height(32.dp).weight(1f),
@@ -299,7 +296,7 @@ fun SettingsDialog(
                                     }
                                     Spacer(modifier = Modifier.height(16.dp))
                                     Button(
-                                        onClick = { imagePickerLauncher.launch("image/*") },
+                                        onClick = { imagePickerLauncher.launch(arrayOf("image/*")) },
                                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF333333)),
                                         modifier = Modifier.fillMaxWidth().height(36.dp),
                                         contentPadding = PaddingValues(0.dp),
@@ -333,7 +330,7 @@ fun SettingsDialog(
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Divider(color = Color.Gray.copy(alpha = 0.2f), thickness = 0.5.dp)
-                                SettingsOptionRow("Адаптивная", { onAutoBrightnessChanged(!isAutoBrightness) }) {
+                                SettingsOptionRow("Адаптивная яркость", { onAutoBrightnessChanged(!isAutoBrightness) }) {
                                     Switch(checked = isAutoBrightness, onCheckedChange = onAutoBrightnessChanged, modifier = Modifier.scale(0.6f), colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF448AFF), uncheckedThumbColor = Color.White, uncheckedTrackColor = Color(0xFF48484A)))
                                 }
                             }
