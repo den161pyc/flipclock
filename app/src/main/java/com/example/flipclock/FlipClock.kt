@@ -72,6 +72,12 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import com.example.flipclock.ui.theme.ClockFontFamily
 
+import android.app.role.RoleManager // Добавить
+import android.provider.Settings // Добавить
+import android.content.pm.PackageManager // Добавить
+import androidx.activity.result.contract.ActivityResultContracts // Добавить
+import androidx.activity.compose.rememberLauncherForActivityResult
+
 // --- ТЕМЫ И КОНСТАНТЫ ---
 
 data class ThemeColors(
@@ -167,15 +173,45 @@ fun FlipClockScreen(
     val batteryContainerColor = currentTheme.cardGradientTop
     val lifecycleOwner = LocalLifecycleOwner.current
 
+    // === НОВАЯ ЛОГИКА ЛАУНЧЕРА ===
+    var isLauncher by remember { mutableStateOf(false) }
+
+    // Объявляем launcherLauncher, который был не найден
+    val launcherLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        // Callback не обязателен
+    }
+
+// Обновляем статус при возврате в приложение
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 hideSystemBars(context)
+                isLauncher = isDefaultLauncher(context) // Проверяем статус
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // Обработчик переключения
+    val onLauncherToggle = {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val roleManager = context.getSystemService(RoleManager::class.java)
+            if (roleManager.isRoleAvailable(RoleManager.ROLE_HOME) && !roleManager.isRoleHeld(RoleManager.ROLE_HOME)) {
+                // Если Android 10+ и роль не занята -> запрашиваем системный диалог
+                val intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_HOME)
+                launcherLauncher.launch(intent)
+            } else {
+                // Иначе (или если хотим отключить) -> идем в настройки
+                val intent = Intent(Settings.ACTION_HOME_SETTINGS)
+                launcherLauncher.launch(intent)
+            }
+        } else {
+            // Для старых версий -> идем в настройки
+            val intent = Intent(Settings.ACTION_HOME_SETTINGS)
+            launcherLauncher.launch(intent)
         }
     }
     // --- Логика будильника ---
@@ -387,7 +423,9 @@ fun FlipClockScreen(
                 bgBlur = bgBlur, onBgBlurChanged = { viewModel.setBgBlur(it) },
                 bgStretch = bgStretch, onBgStretchChanged = { viewModel.setBgStretch(it) },
                 currentCardColor = cardColorInt,
-                onCardColorChanged = { viewModel.setCardColor(it) }
+                onCardColorChanged = { viewModel.setCardColor(it) },
+                isDefaultLauncher = isLauncher,
+                onLauncherToggle = onLauncherToggle
             )
         }
     }
@@ -756,4 +794,9 @@ fun hideSystemBars(context: Context) {
     val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
     windowInsetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE;
     windowInsetsController.hide(WindowInsetsCompat.Type.systemBars())
+}
+fun isDefaultLauncher(context: Context): Boolean {
+    val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+    val resolveInfo = context.packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
+    return resolveInfo?.activityInfo?.packageName == context.packageName
 }

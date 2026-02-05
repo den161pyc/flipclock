@@ -68,7 +68,9 @@ fun SettingsDialog(
     cardColors: List<Int>, // Принимаем список извне
     onCardPaletteEdited: (Int, Int) -> Unit, // Callback для редактирования
     currentCardColor: Int,
-    onCardColorChanged: (Int) -> Unit
+    onCardColorChanged: (Int) -> Unit,
+    isDefaultLauncher: Boolean, // НОВОЕ: статус лаунчера
+    onLauncherToggle: () -> Unit // НОВОЕ: переключение лаунчера
 ) {
     var showColorPicker by remember { mutableStateOf(false) }
     var colorPickerMode by remember { mutableStateOf<PickerMode>(PickerMode.Background) }
@@ -335,6 +337,30 @@ fun SettingsDialog(
                                 }
                             }
                         }
+                        // === НОВАЯ СЕКЦИЯ: ЛАУНЧЕР ===
+                        Spacer(modifier = Modifier.height(16.dp))
+                        SettingsSectionTitle("Система", paddingBottom = 4.dp)
+                        Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF2C2C2E)), shape = RoundedCornerShape(8.dp)) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                SettingsOptionRow(
+                                    label = "Использовать как лаунчер",
+                                    onClick = onLauncherToggle
+                                ) {
+                                    Switch(
+                                        checked = isDefaultLauncher,
+                                        onCheckedChange = { onLauncherToggle() },
+                                        modifier = Modifier.scale(0.6f),
+                                        colors = SwitchDefaults.colors(
+                                            checkedThumbColor = Color.White,
+                                            checkedTrackColor = Color(0xFF448AFF),
+                                            uncheckedThumbColor = Color.White,
+                                            uncheckedTrackColor = Color(0xFF48484A)
+                                        )
+                                    )
+                                }
+                            }
+                        }
+
                         Spacer(modifier = Modifier.height(32.dp))
                     }
                 }
